@@ -11,34 +11,32 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Save, Trash2, Upload, Loader2, RefreshCw, Download } from "lucide-react";
-
-// ... inside the component ...
-
+import { Plus, Save, Trash2, Upload, Loader2, RefreshCw, Download, Clipboard } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-// Start with snake_case definition to match DB
+// Definition to match PLACEMENT_TEMPLATE.xlsx and placement_records table (Designation removed)
 interface PlacementRecord {
-    id?: number; // Optional for new records
-    company_name: string;
-    company_mail: string;
-    company_address: string;
-    hr_name: string;
-    hr_mail: string;
-    placed_student_name: string;
-    department: string;
-    internship_or_placed: string;
-    stipend_salary: string;
-    package_lpa: string;
-    student_id: string;
-    student_mail_id: string;
-    student_address: string;
-    placed_year: string;
-    placed_sem: string;
-    date_of_join: string;
-    reference: string;
+    id?: string;
+    v_visit_type: string;
+    date_of_visit: string;
+    v_company_name: string;
+    v_company_address: string;
+    v_location: string;
+    v_company_contact_person: string;
+    v_company_contact_number: string;
+    v_company_mail_id: string;
+    company_type: string;
+    salary_package: string;
+    remark: string;
+    [key: string]: any; // Support dynamic fields
 }
 
 export function PlacementRecordTable() {
@@ -46,6 +44,22 @@ export function PlacementRecordTable() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [focusedCell, setFocusedCell] = useState<{ index: number, field: string } | null>(null);
+    const [customColumns, setCustomColumns] = useState<string[]>([]);
+
+    const COLUMN_KEYS: (keyof PlacementRecord)[] = [
+        "v_visit_type",
+        "date_of_visit",
+        "v_company_name",
+        "v_company_address",
+        "v_location",
+        "v_company_contact_person",
+        "v_company_contact_number",
+        "v_company_mail_id",
+        "company_type",
+        "salary_package",
+        "remark"
+    ];
 
     // Search and Filter State
     const [searchTerm, setSearchTerm] = useState("");
@@ -65,32 +79,166 @@ export function PlacementRecordTable() {
 
     // Filter Fields Configuration
     const FILTER_FIELDS: { label: string; key: keyof PlacementRecord }[] = [
-        { label: "Department", key: "department" },
-        { label: "Company", key: "company_name" },
-        { label: "Year", key: "placed_year" },
-        { label: "Status", key: "internship_or_placed" },
-        { label: "Semester", key: "placed_sem" },
-        { label: "Package (LPA)", key: "package_lpa" },
-        { label: "HR Name", key: "hr_name" },
-        { label: "Student Name", key: "placed_student_name" },
-        { label: "Join Date", key: "date_of_join" } // Exact date match
+        { label: "Visit Type", key: "v_visit_type" },
+        { label: "Company", key: "v_company_name" },
+        { label: "Location", key: "v_location" },
+        { label: "Company Type", key: "company_type" },
+        { label: "Date of Visit", key: "date_of_visit" }
     ];
 
-    // Fetch records on mount
+    const filteredRecords = records.filter((record) => {
+        if (searchTerm) {
+            const lowerSearch = searchTerm.toLowerCase();
+            const matchesSearch = (
+                (record.v_company_name?.toLowerCase() || "").includes(lowerSearch) ||
+                (record.v_location?.toLowerCase() || "").includes(lowerSearch) ||
+                (record.v_company_contact_person?.toLowerCase() || "").includes(lowerSearch) ||
+                (record.v_company_mail_id?.toLowerCase() || "").includes(lowerSearch) ||
+                (record.remark?.toLowerCase() || "").includes(lowerSearch)
+            );
+            if (!matchesSearch) return false;
+        }
+
+        for (const filter of activeFilters) {
+            const recordVal = String(record[filter.field] || "").toLowerCase();
+            const filterVal = filter.value.toLowerCase();
+            if (recordVal !== filterVal) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+
+    const processClipboardData = (clipboardText: string, useFocus: boolean = true) => {
+        try {
+            const rows = clipboardText.split(/\r?\n/).filter(line => line.length > 0);
+            if (rows.length === 0) return false;
+            const matrix = rows.map(row => row.split("\t"));
+
+            if (useFocus && focusedCell) {
+                const { index: startRow, field: startField } = focusedCell;
+                const startColIndex = COLUMN_KEYS.indexOf(startField);
+
+                if (startColIndex !== -1) {
+                    setRecords(prev => {
+                        const newRecords = [...prev];
+                        matrix.forEach((cells, rOffset) => {
+                            const targetRowIndex = startRow + rOffset;
+                            if (!newRecords[targetRowIndex]) {
+                                newRecords[targetRowIndex] = {
+                                    v_visit_type: "On Campus",
+                                    date_of_visit: "",
+                                    v_company_name: "",
+                                    v_company_address: "",
+                                    v_location: "",
+                                    v_company_contact_person: "",
+                                    v_company_contact_number: "",
+                                    v_company_mail_id: "",
+                                    company_type: "IT",
+                                    salary_package: "",
+                                    remark: "",
+                                };
+                            }
+                            cells.forEach((cellValue, cOffset) => {
+                                const targetColIndex = startColIndex + cOffset;
+                                if (targetColIndex < COLUMN_KEYS.length) {
+                                    const fieldKey = COLUMN_KEYS[targetColIndex];
+                                    let val = cellValue.trim();
+                                    if (fieldKey === "date_of_visit") val = parseExcelDate(val);
+                                    newRecords[targetRowIndex] = { ...newRecords[targetRowIndex], [fieldKey]: val };
+                                }
+                            });
+                        });
+                        return newRecords;
+                    });
+                    toast.success("Data updated in table.");
+                    return true;
+                }
+            }
+
+            const firstRow = matrix[0];
+            const headerKeywords = ["company", "visit", "date", "type", "location", "contact", "person", "number", "mail", "remark"];
+            const hasHeaders = firstRow.some(cell => headerKeywords.some(keyword => cell.toLowerCase().includes(keyword)));
+
+            let dataToMap: any[] = [];
+            if (hasHeaders && matrix.length > 1) {
+                const headers = firstRow;
+                dataToMap = matrix.slice(1).map(rowCells => {
+                    const obj: any = {};
+                    headers.forEach((header, i) => { obj[header] = rowCells[i] || ""; });
+                    return obj;
+                });
+            } else {
+                if (!useFocus) toast.info("No headers detected. Mapping data based on default column order.");
+                dataToMap = matrix.map(rowCells => {
+                    const obj: any = {};
+                    rowCells.forEach((cell, i) => { obj[`column_${i}`] = cell; });
+                    return obj;
+                });
+            }
+
+            const newRecords = dataToMap.map(row => mapExcelRowToRecord(row));
+            setRecords(prev => [...newRecords, ...prev]);
+            toast.success(`Imported ${newRecords.length} records.`);
+            return true;
+        } catch (err) {
+            console.error("Paste error:", err);
+            toast.error("Failed to parse clipboard data.");
+            return false;
+        }
+    };
+
+    const handlePasteFromClipboard = async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text) {
+                toast.error("Clipboard is empty or access denied.");
+                return;
+            }
+            processClipboardData(text, false);
+        } catch (err) {
+            toast.error("Browser blocked clipboard access. Please use Ctrl+V instead.");
+        }
+    };
+
     useEffect(() => {
         fetchRecords();
-    }, []);
+
+        const handlePaste = (e: ClipboardEvent) => {
+            const clipboardData = e.clipboardData?.getData("text");
+            if (!clipboardData) return;
+
+            // Check if user is typing in a non-table input (like the search box)
+            const target = e.target as HTMLInputElement;
+            const isSearchInput = target.placeholder?.includes("Search");
+
+            if (isSearchInput) return; // Let search input handle normal paste
+
+            if (processClipboardData(clipboardData, true)) {
+                // If it's a multi-cell paste or we're in "spreadsheet mode", prevent default
+                if (focusedCell || clipboardData.includes("\t") || clipboardData.includes("\n")) {
+                    e.preventDefault();
+                }
+            }
+        };
+
+        window.addEventListener("paste", handlePaste);
+        return () => window.removeEventListener("paste", handlePaste);
+    }, [focusedCell]);
 
     const fetchRecords = async () => {
         setIsLoading(true);
         try {
-            const { data, error } = await supabase
-                .from("placement_records" as any)
+            const { data, error } = await (supabase
+                .from("placement_records" as any) as any)
                 .select("*")
                 .order("created_at", { ascending: false });
 
             if (error) {
                 console.error("Error fetching records:", error);
+                toast.error("Failed to fetch records");
             } else {
                 setRecords((data as any) || []);
             }
@@ -103,34 +251,25 @@ export function PlacementRecordTable() {
 
     const addRow = () => {
         const newRecord: PlacementRecord = {
-            // id is undefined for new rows
-            company_name: "",
-            company_mail: "",
-            company_address: "",
-            hr_name: "",
-            hr_mail: "",
-            placed_student_name: "",
-            department: "",
-            internship_or_placed: "Placed",
-            stipend_salary: "",
-            package_lpa: "",
-            student_id: "",
-            student_mail_id: "",
-            student_address: "",
-            placed_year: new Date().getFullYear().toString(),
-            placed_sem: "",
-            date_of_join: "",
-            reference: "",
+            v_visit_type: "On Campus",
+            date_of_visit: new Date().toISOString().split('T')[0],
+            v_company_name: "",
+            v_company_address: "",
+            v_location: "",
+            v_company_contact_person: "",
+            v_company_contact_number: "",
+            v_company_mail_id: "",
+            company_type: "IT",
+            salary_package: "",
+            remark: "",
         };
-        // Add to the beginning of the list for better visibility
         setRecords([newRecord, ...records]);
     };
 
-    const removeRow = async (index: number, id?: number) => {
+    const removeRow = async (index: number, id?: any) => {
         if (id) {
-            // Delete from DB
-            const { error } = await supabase
-                .from("placement_records" as any)
+            const { error } = await (supabase
+                .from("placement_records" as any) as any)
                 .delete()
                 .eq("id", id);
 
@@ -141,10 +280,31 @@ export function PlacementRecordTable() {
             toast.success("Record deleted");
         }
 
-        // Remove from local state
         const newRecords = [...records];
         newRecords.splice(index, 1);
         setRecords(newRecords);
+    };
+
+    const handleDeleteAll = async () => {
+        if (!confirm("Are you sure you want to delete ALL records? This action cannot be undone.")) return;
+
+        setIsLoading(true);
+        try {
+            const { error } = await (supabase
+                .from("placement_records" as any) as any)
+                .delete()
+                .not("id", "is", null);
+
+            if (error) throw error;
+
+            setRecords([]);
+            toast.success("All records deleted successfully");
+        } catch (error: any) {
+            console.error("Delete all error:", error);
+            toast.error("Failed to delete all records: " + (error.message || "Unknown error"));
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const updateRecord = (index: number, field: keyof PlacementRecord, value: string) => {
@@ -156,23 +316,46 @@ export function PlacementRecordTable() {
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            const payload = records.map(r => {
-                const { id, ...rest } = r;
-                return id ? r : rest; // remove id if it's undefined (though usually it's fine)
-            });
+            const cleanRecord = (r: any) => {
+                const cleaned: any = {};
+                COLUMN_KEYS.forEach(key => {
+                    cleaned[key] = r[key];
+                });
+                if (r.id) cleaned.id = r.id;
+                return cleaned;
+            };
 
-            const { data, error } = await supabase
-                .from("placement_records" as any)
-                .upsert(payload)
-                .select();
+            if (customColumns.length > 0) {
+                toast.info("Note: Custom columns are for current session/export only and will not be saved to the database.");
+            }
 
-            if (error) throw error;
+            const toUpdate = records
+                .filter(r => r.id && String(r.id).length > 5)
+                .map(cleanRecord);
+
+            const toInsert = records
+                .filter(r => !r.id || String(r.id).length < 5)
+                .map(r => {
+                    const { id, ...rest } = cleanRecord(r);
+                    return rest;
+                });
+
+            if (toUpdate.length > 0) {
+                const { error } = await (supabase
+                    .from("placement_records" as any) as any)
+                    .upsert(toUpdate);
+                if (error) throw error;
+            }
+
+            if (toInsert.length > 0) {
+                const { error } = await (supabase
+                    .from("placement_records" as any) as any)
+                    .insert(toInsert);
+                if (error) throw error;
+            }
 
             toast.success("All records saved successfully!");
-            // Update local state with the returned data (which includes new IDs)
-            if (data) {
-                setRecords(data as any);
-            }
+            fetchRecords();
         } catch (error: any) {
             console.error("Save error:", error);
             toast.error("Failed to save records: " + (error.message || "Unknown error"));
@@ -181,66 +364,168 @@ export function PlacementRecordTable() {
         }
     };
 
-    // Helper to map excel keys to snake_case
-    const mapExcelRowToRecord = (row: any): PlacementRecord => {
-        const getVal = (keys: string[]) => {
-            for (const key of keys) {
-                if (row[key] !== undefined) return String(row[key]);
-                const rowKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
-                if (rowKey) return String(row[rowKey]);
+    const parseExcelDate = (value: any): string => {
+        if (!value) return "";
+
+        // If it's a number (Excel serial date), convert it
+        if (typeof value === 'number' || (!isNaN(Number(value)) && !String(value).includes('-') && !String(value).includes('/'))) {
+            const serial = Number(value);
+            const date = new Date((serial - 25569) * 86400 * 1000);
+            const offset = date.getTimezoneOffset() * 60000;
+            const adjDate = new Date(date.getTime() + offset);
+            return adjDate.toISOString().split('T')[0];
+        }
+
+        const dateStr = String(value).trim();
+        if (!dateStr) return "";
+
+        if (dateStr.includes('&') || dateStr.includes(' and ') || dateStr.includes(',') || dateStr.split(' ').length > 2) {
+            return dateStr;
+        }
+
+        const parts = dateStr.split(/[./-]/);
+        if (parts.length === 3) {
+            const [d, m, y] = parts.map(Number);
+            if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+                const fullYear = y < 100 ? 2000 + y : y;
+                const dObj = new Date(fullYear, m - 1, d);
+                if (!isNaN(dObj.getTime())) {
+                    return dObj.toISOString().split('T')[0];
+                }
             }
-            return "";
+        }
+
+        const parsed = Date.parse(dateStr);
+        if (!isNaN(parsed)) {
+            try {
+                return new Date(parsed).toISOString().split('T')[0];
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
+        return dateStr;
+    };
+
+    const mapExcelRowToRecord = (row: any): PlacementRecord => {
+        const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        const findKeyByFuzzyMatch = (searchKeys: string[]) => {
+            const normalizedSearchKeys = searchKeys.map(normalize);
+            const rowKeys = Object.keys(row);
+
+            for (const searchKey of searchKeys) {
+                if (row[searchKey] !== undefined) return row[searchKey];
+            }
+
+            for (const rKey of rowKeys) {
+                const normRKey = normalize(rKey);
+                if (normalizedSearchKeys.includes(normRKey)) return row[rKey];
+            }
+
+            for (const rKey of rowKeys) {
+                const normRKey = normalize(rKey);
+                if (normalizedSearchKeys.some(sk => normRKey.includes(sk) || sk.includes(normRKey))) {
+                    return row[rKey];
+                }
+            }
+            return undefined;
         };
 
+        const getVal = (keys: string[]) => String(findKeyByFuzzyMatch(keys) || "").trim();
+
         return {
-            company_name: getVal(["Company Name", "Name of Company", "Company"]),
-            company_mail: getVal(["Company Mail", "Company Email", "Email ID (Company)"]),
-            company_address: getVal(["Company Address", "Address"]),
-            hr_name: getVal(["HR Name", "HR"]),
-            hr_mail: getVal(["HR Mail", "HR Email"]),
-            placed_student_name: getVal(["Placed Student Name", "Student Name", "Name"]),
-            department: getVal(["Department", "Dept"]),
-            internship_or_placed: getVal(["Internship / Placed", "Type", "Selection Type"]) || "Placed",
-            stipend_salary: getVal(["Stipend / Salary", "Salary", "Stipend"]),
-            package_lpa: getVal(["Package [LPA]", "Package", "CTC"]),
-            student_id: getVal(["Student ID", "Register No", "Reg No"]),
-            student_mail_id: getVal(["Student Mail ID", "Student Email", "Email ID"]),
-            student_address: getVal(["Student Address"]),
-            placed_year: getVal(["Placed Year", "Year"]) || new Date().getFullYear().toString(),
-            placed_sem: getVal(["Placed Sem", "Semester"]),
-            date_of_join: getVal(["Date of Join", "Joining Date"]),
-            reference: getVal(["Reference", "Ref"]),
+            v_visit_type: getVal(["v_visit_type", "Visit Type", "Type", "Mode"]),
+            date_of_visit: parseExcelDate(findKeyByFuzzyMatch(["date_of_visit", "Date of Visit", "Date", "Visit Date", "Arrival"])),
+            v_company_name: getVal(["v_company_name", "Company Name", "Name of Company", "Company", "Organization"]),
+            v_company_address: getVal(["v_company_address", "Company Address", "Address", "Office Address"]),
+            v_location: getVal(["v_location", "Location", "City", "Venue"]),
+            v_company_contact_person: getVal(["v_company_contact_person", "Contact Person", "HR Name", "Contact", "HR"]),
+            v_company_contact_number: getVal(["v_company_contact_number", "Contact Number", "Mobile", "Phone", "HR Contact"]),
+            v_company_mail_id: getVal(["v_company_mail_id", "Company Mail ID", "Email", "HR Mail", "Mail"]),
+            company_type: getVal(["company_type", "Company Type", "Sector", "Industry"]),
+            salary_package: getVal(["salary_package", "Salary Package", "Package", "CTC", "LPA", "Salary"]),
+            remark: getVal(["remark", "Remark", "Notes", "Status"]),
         };
     };
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
 
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-            try {
-                const bstr = evt.target?.result;
-                const workbook = XLSX.read(bstr, { type: "binary" });
-                const wsname = workbook.SheetNames[0];
-                const ws = workbook.Sheets[wsname];
-                const data = XLSX.utils.sheet_to_json(ws);
+        const fileList = Array.from(files);
+        setIsLoading(true);
+        const processedFiles: string[] = [];
 
-                if (data && data.length > 0) {
-                    const newRecords = data.map((row: any) => mapExcelRowToRecord(row));
-                    // Append new records to the top
-                    setRecords((prev) => [...newRecords, ...prev]);
-                    toast.success(`Imported ${newRecords.length} records. Click "Save Changes" to persist them.`);
-                } else {
-                    toast.error("No data found in file.");
-                }
-            } catch (error) {
-                console.error("Error parsing file:", error);
-                toast.error("Failed to parse file.");
+        try {
+            const allFileResults = await Promise.all(fileList.map(async (file) => {
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data);
+                let fileRecords: PlacementRecord[] = [];
+
+                workbook.SheetNames.forEach(sheetName => {
+                    const worksheet = workbook.Sheets[sheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                    if (jsonData.length > 0) {
+                        const mapped = (jsonData as any[]).map(row => mapExcelRowToRecord(row));
+                        fileRecords = [...fileRecords, ...mapped];
+                    }
+                });
+
+                processedFiles.push(file.name);
+                return fileRecords;
+            }));
+
+            const combinedRecords = allFileResults.flat();
+            if (combinedRecords.length > 0) {
+                setRecords(prev => [...combinedRecords, ...prev]);
+                toast.success(`Imported ${combinedRecords.length} records from: ${processedFiles.join(", ")}`);
+            } else {
+                toast.error("No valid data found in the selected files.");
             }
+        } catch (error) {
+            console.error("Error parsing files:", error);
+            toast.error("Failed to parse some files. Please ensure they are valid Excel/CSV files.");
+        } finally {
+            setIsLoading(false);
             if (fileInputRef.current) fileInputRef.current.value = "";
-        };
-        reader.readAsBinaryString(file);
+        }
+    };
+
+    const handlePasteAsNewColumn = async () => {
+        const columnName = prompt("Enter a name for the new column:");
+        if (!columnName) return;
+
+        if (COLUMN_KEYS.includes(columnName as any) || customColumns.includes(columnName)) {
+            toast.error("Column name already exists.");
+            return;
+        }
+
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text) {
+                toast.error("Clipboard is empty.");
+                return;
+            }
+
+            const values = text.split(/\r?\n/).filter(line => line.length > 0);
+            if (values.length === 0) {
+                toast.error("No data found in clipboard.");
+                return;
+            }
+
+            setRecords(prev => {
+                return prev.map((record, index) => ({
+                    ...record,
+                    [columnName]: values[index] || "" // Map by index
+                }));
+            });
+
+            setCustomColumns(prev => [...prev, columnName]);
+            toast.success(`Added column "${columnName}" with ${values.length} values.`);
+        } catch (err) {
+            toast.error("Failed to read clipboard. Please provide permissions.");
+        }
     };
 
     const handleDownload = () => {
@@ -250,26 +535,20 @@ export function PlacementRecordTable() {
         }
 
         const wb = XLSX.utils.book_new();
-        // Format data for export - nice headers
         const exportData = filteredRecords.map((r, i) => ({
             "S.No": i + 1,
-            "Company Name": r.company_name,
-            "Company Mail": r.company_mail,
-            "Company Address": r.company_address,
-            "HR Name": r.hr_name,
-            "HR Mail": r.hr_mail,
-            "Student Name": r.placed_student_name,
-            "Department": r.department,
-            "Type": r.internship_or_placed,
-            "Salary": r.stipend_salary,
-            "Package (LPA)": r.package_lpa,
-            "Student ID": r.student_id,
-            "Student Mail": r.student_mail_id,
-            "Student Address": r.student_address,
-            "Year": r.placed_year,
-            "Semester": r.placed_sem,
-            "Join Date": r.date_of_join,
-            "Reference": r.reference
+            "Visit Type": r.v_visit_type,
+            "Date of Visit": r.date_of_visit,
+            "Company Name": r.v_company_name,
+            "Company Address": r.v_company_address,
+            "Location": r.v_location,
+            "Contact Person": r.v_company_contact_person,
+            "Contact Number": r.v_company_contact_number,
+            "Company Mail ID": r.v_company_mail_id,
+            "Company Type": r.company_type,
+            "Salary Package": r.salary_package,
+            "Remark": r.remark,
+            ...Object.fromEntries(customColumns.map(col => [col, r[col] || ""]))
         }));
 
         const ws = XLSX.utils.json_to_sheet(exportData);
@@ -278,7 +557,48 @@ export function PlacementRecordTable() {
         toast.success(`Downloaded ${filteredRecords.length} records.`);
     };
 
-    // Get unique available values for a selected field
+    const handleMultipleExport = () => {
+        if (records.length === 0) {
+            toast.error("No records to export.");
+            return;
+        }
+
+        const wb = XLSX.utils.book_new();
+
+        const formatForExport = (data: PlacementRecord[]) => data.map((r, i) => ({
+            "S.No": i + 1,
+            "Visit Type": r.v_visit_type,
+            "Date of Visit": r.date_of_visit,
+            "Company Name": r.v_company_name,
+            "Company Address": r.v_company_address,
+            "Location": r.v_location,
+            "Contact Person": r.v_company_contact_person,
+            "Contact Number": r.v_company_contact_number,
+            "Company Mail ID": r.v_company_mail_id,
+            "Company Type": r.company_type,
+            "Salary Package": r.salary_package,
+            "Remark": r.remark,
+            ...Object.fromEntries(customColumns.map(col => [col, r[col] || ""]))
+        }));
+
+        // Sheet 1: All Records
+        const wsAll = XLSX.utils.json_to_sheet(formatForExport(records));
+        XLSX.utils.book_append_sheet(wb, wsAll, "All Records");
+
+        // Dynamic Sheets based on Company Type
+        const types = ["IT", "CORE", "BPO", "OTHER"];
+        types.forEach(type => {
+            const filtered = records.filter(r => r.company_type === type);
+            if (filtered.length > 0) {
+                const wsType = XLSX.utils.json_to_sheet(formatForExport(filtered));
+                XLSX.utils.book_append_sheet(wb, wsType, `${type} Records`);
+            }
+        });
+
+        XLSX.writeFile(wb, `Multiple_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+        toast.success(`Exported ${records.length} records in multiple sheets.`);
+    };
+
     const getAvailableValues = (fieldKey: string) => {
         if (!fieldKey) return [];
         const unique = new Set(records.map((r: any) => r[fieldKey]).filter((v: any) => v !== undefined && v !== null && v !== ""));
@@ -308,33 +628,6 @@ export function PlacementRecordTable() {
         setActiveFilters(activeFilters.filter(f => f.id !== id));
     };
 
-    // Derived filtered records
-    const filteredRecords = records.filter((record) => {
-        // 1. Universal Search
-        if (searchTerm) {
-            const lowerSearch = searchTerm.toLowerCase();
-            const matchesSearch = (
-                (record.company_name?.toLowerCase() || "").includes(lowerSearch) ||
-                (record.placed_student_name?.toLowerCase() || "").includes(lowerSearch) ||
-                (record.student_id?.toLowerCase() || "").includes(lowerSearch) ||
-                (record.hr_name?.toLowerCase() || "").includes(lowerSearch) ||
-                (record.reference?.toLowerCase() || "").includes(lowerSearch)
-            );
-            if (!matchesSearch) return false;
-        }
-
-        // 2. Dynamic Filters (AND Logic)
-        for (const filter of activeFilters) {
-            const recordVal = String(record[filter.field] || "").toLowerCase();
-            const filterVal = filter.value.toLowerCase();
-            if (recordVal !== filterVal) {
-                return false;
-            }
-        }
-
-        return true;
-    });
-
     return (
         <Card className="w-full border-t-4 border-t-primary shadow-lg">
             <CardHeader className="space-y-4 pb-6 bg-muted/10">
@@ -348,7 +641,6 @@ export function PlacementRecordTable() {
                             Centralized placement data history and management
                         </CardDescription>
                     </div>
-                    {/* Action Buttons */}
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
                         <input
                             type="file"
@@ -356,21 +648,40 @@ export function PlacementRecordTable() {
                             onChange={handleFileUpload}
                             className="hidden"
                             accept=".xlsx, .xls, .csv"
+                            multiple
                         />
                         <Button onClick={() => fileInputRef.current?.click()} variant="secondary" className="shadow-sm">
                             <Upload className="mr-2 h-4 w-4" /> Import Excel
                         </Button>
-                        <Button onClick={handleDownload} variant="secondary" className="shadow-sm">
-                            <Download className="mr-2 h-4 w-4" /> Download Filtered
+                        <Button onClick={handlePasteFromClipboard} variant="outline" className="shadow-sm bg-primary/5 border-primary/20 hover:bg-primary/10">
+                            <Clipboard className="mr-2 h-4 w-4 text-primary" /> Paste New Rows
                         </Button>
-                        <Button onClick={handleDownload} variant="secondary" className="shadow-sm">
-                            <Download className="mr-2 h-4 w-4" /> Download Filtered
-                        </Button>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="secondary" className="shadow-sm">
+                                    <Download className="mr-2 h-4 w-4" /> Export Data
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={handleDownload}>
+                                    Export Filtered ({filteredRecords.length})
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={handleMultipleExport}>
+                                    Export All (Multi-Sheet)
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                         <Button onClick={addRow} variant="outline" className="shadow-sm">
                             <Plus className="mr-2 h-4 w-4" /> Add Row
                         </Button>
+                        <Button onClick={handlePasteAsNewColumn} variant="outline" className="shadow-sm">
+                            <Plus className="mr-2 h-4 w-4" /> Paste New Column
+                        </Button>
                         <Button onClick={fetchRecords} variant="ghost" size="icon" title="Refresh">
                             <RefreshCw className="h-4 w-4" />
+                        </Button>
+                        <Button onClick={handleDeleteAll} variant="destructive" size="icon" title="Delete All">
+                            <Trash2 className="h-4 w-4" />
                         </Button>
                         <Button onClick={handleSave} disabled={isSaving} className="shadow-sm">
                             {isSaving ? (
@@ -383,9 +694,13 @@ export function PlacementRecordTable() {
                     </div>
                 </div>
 
-                {/* SEARCH & DYNAMIC FILTERS */}
+                {/* Direct Paste Hint */}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 px-3 py-1.5 rounded-md border border-primary/10 w-fit">
+                    <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse" />
+                    <span>Tip: You can <b>Ctrl+V</b> anywhere on this page to paste records directly from Excel!</span>
+                </div>
+
                 <div className="flex flex-col gap-4 mt-4 p-5 bg-background rounded-xl border shadow-sm">
-                    {/* Search Bar */}
                     <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -400,7 +715,6 @@ export function PlacementRecordTable() {
                         />
                     </div>
 
-                    {/* Active Filters List */}
                     {activeFilters.length > 0 && (
                         <div className="flex flex-wrap gap-2 py-2">
                             {activeFilters.map(filter => (
@@ -428,7 +742,6 @@ export function PlacementRecordTable() {
                         </div>
                     )}
 
-                    {/* Filter Creator Row */}
                     {!isAddingFilter ? (
                         <div className="flex items-center justify-between">
                             <Button
@@ -453,7 +766,7 @@ export function PlacementRecordTable() {
                                     </SelectTrigger>
                                     <SelectContent>
                                         {FILTER_FIELDS.map(f => (
-                                            <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
+                                            <SelectItem key={String(f.key)} value={String(f.key)}>{f.label}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -486,38 +799,34 @@ export function PlacementRecordTable() {
                         </div>
                     )}
                 </div>
-
             </CardHeader>
             <CardContent className="p-0">
                 <div className="rounded-none border-t overflow-x-auto relative">
-                    <Table className="min-w-[2400px]">
+                    <Table className="min-w-[2000px]">
                         <TableHeader className="bg-muted/50 sticky top-0 z-10">
                             <TableRow>
                                 <TableHead className="w-[50px] sticky left-0 bg-muted/50 z-20">S.No</TableHead>
-                                <TableHead className="min-w-[150px]">Company Name</TableHead>
-                                <TableHead className="min-w-[150px]">Company Mail</TableHead>
+                                <TableHead className="min-w-[120px]">Visit Type</TableHead>
+                                <TableHead className="min-w-[130px]">Date of Visit</TableHead>
+                                <TableHead className="min-w-[180px]">Company Name</TableHead>
                                 <TableHead className="min-w-[200px]">Company Address</TableHead>
-                                <TableHead className="min-w-[150px]">HR Name</TableHead>
-                                <TableHead className="min-w-[150px]">HR Mail</TableHead>
-                                <TableHead className="min-w-[150px]">Student Name</TableHead>
-                                <TableHead className="min-w-[100px]">Dept</TableHead>
-                                <TableHead className="min-w-[120px]">Type</TableHead>
-                                <TableHead className="min-w-[100px]">Salary</TableHead>
-                                <TableHead className="min-w-[100px]">Package (LPA)</TableHead>
-                                <TableHead className="min-w-[120px]">Student ID</TableHead>
-                                <TableHead className="min-w-[150px]">Student Mail</TableHead>
-                                <TableHead className="min-w-[200px]">Student Address</TableHead>
-                                <TableHead className="min-w-[80px]">Year</TableHead>
-                                <TableHead className="min-w-[80px]">Sem</TableHead>
-                                <TableHead className="min-w-[130px]">Join Date</TableHead>
-                                <TableHead className="min-w-[100px]">Ref</TableHead>
+                                <TableHead className="min-w-[150px]">Location</TableHead>
+                                <TableHead className="min-w-[150px]">Contact Person</TableHead>
+                                <TableHead className="min-w-[150px]">Contact Number</TableHead>
+                                <TableHead className="min-w-[180px]">Company Mail ID</TableHead>
+                                <TableHead className="min-w-[120px]">Company Type</TableHead>
+                                <TableHead className="min-w-[120px]">Salary Package</TableHead>
+                                <TableHead className="min-w-[150px]">Remark</TableHead>
+                                {customColumns.map(col => (
+                                    <TableHead key={col} className="min-w-[150px]">{col}</TableHead>
+                                ))}
                                 <TableHead className="w-[80px] text-right sticky right-0 bg-muted/50 z-20">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {filteredRecords.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={19} className="text-center h-32 text-muted-foreground">
+                                    <TableCell colSpan={13} className="text-center h-32 text-muted-foreground">
                                         No matching records found.
                                     </TableCell>
                                 </TableRow>
@@ -528,146 +837,138 @@ export function PlacementRecordTable() {
                                             {index + 1}
                                         </TableCell>
                                         <TableCell>
-                                            <Input
-                                                value={record.company_name}
-                                                onChange={(e) => updateRecord(index, "company_name", e.target.value)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                                placeholder="Company"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.company_mail}
-                                                onChange={(e) => updateRecord(index, "company_mail", e.target.value)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.company_address}
-                                                onChange={(e) => updateRecord(index, "company_address", e.target.value)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.hr_name}
-                                                onChange={(e) => updateRecord(index, "hr_name", e.target.value)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.hr_mail}
-                                                onChange={(e) => updateRecord(index, "hr_mail", e.target.value)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.placed_student_name}
-                                                onChange={(e) => updateRecord(index, "placed_student_name", e.target.value)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors font-medium"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
                                             <Select
-                                                value={record.department}
-                                                onValueChange={(val) => updateRecord(index, "department", val)}
+                                                value={record.v_visit_type}
+                                                onValueChange={(val) => updateRecord(index, "v_visit_type", val)}
                                             >
-                                                <SelectTrigger className="h-8 border-transparent hover:border-input focus:border-ring">
-                                                    <SelectValue placeholder="-" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="CSE">CSE</SelectItem>
-                                                    <SelectItem value="ECE">ECE</SelectItem>
-                                                    <SelectItem value="EEE">EEE</SelectItem>
-                                                    <SelectItem value="MECH">MECH</SelectItem>
-                                                    <SelectItem value="CIVIL">CIVIL</SelectItem>
-                                                    <SelectItem value="IT">IT</SelectItem>
-                                                    <SelectItem value="AIDS">AIDS</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Select
-                                                value={record.internship_or_placed}
-                                                onValueChange={(val) => updateRecord(index, "internship_or_placed", val)}
-                                            >
-                                                <SelectTrigger className="h-8 border-transparent hover:border-input focus:border-ring">
+                                                <SelectTrigger
+                                                    className="h-8 border-transparent hover:border-input focus:border-ring"
+                                                    onFocus={() => setFocusedCell({ index, field: "v_visit_type" })}
+                                                    onBlur={() => setFocusedCell(null)}
+                                                >
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="Placed">Placed</SelectItem>
-                                                    <SelectItem value="Internship">Internship</SelectItem>
-                                                    <SelectItem value="Both">Both</SelectItem>
+                                                    <SelectItem value="On Campus">On Campus</SelectItem>
+                                                    <SelectItem value="Off Campus">Off Campus</SelectItem>
+                                                    <SelectItem value="Virtual">Virtual</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </TableCell>
                                         <TableCell>
                                             <Input
-                                                value={record.stipend_salary}
-                                                onChange={(e) => updateRecord(index, "stipend_salary", e.target.value)}
+                                                value={record.date_of_visit}
+                                                onChange={(e) => updateRecord(index, "date_of_visit", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "date_of_visit" })}
+                                                onBlur={() => setFocusedCell(null)}
+                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
+                                                placeholder="YYYY-MM-DD or Range"
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input
+                                                value={record.v_company_name}
+                                                onChange={(e) => updateRecord(index, "v_company_name", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "v_company_name" })}
+                                                onBlur={() => setFocusedCell(null)}
                                                 className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
                                             />
                                         </TableCell>
                                         <TableCell>
                                             <Input
-                                                value={record.package_lpa}
-                                                onChange={(e) => updateRecord(index, "package_lpa", e.target.value)}
+                                                value={record.v_company_address}
+                                                onChange={(e) => updateRecord(index, "v_company_address", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "v_company_address" })}
+                                                onBlur={() => setFocusedCell(null)}
                                                 className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
                                             />
                                         </TableCell>
                                         <TableCell>
                                             <Input
-                                                value={record.student_id}
-                                                onChange={(e) => updateRecord(index, "student_id", e.target.value)}
+                                                value={record.v_location}
+                                                onChange={(e) => updateRecord(index, "v_location", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "v_location" })}
+                                                onBlur={() => setFocusedCell(null)}
                                                 className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
                                             />
                                         </TableCell>
                                         <TableCell>
                                             <Input
-                                                value={record.student_mail_id}
-                                                onChange={(e) => updateRecord(index, "student_mail_id", e.target.value)}
+                                                value={record.v_company_contact_person}
+                                                onChange={(e) => updateRecord(index, "v_company_contact_person", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "v_company_contact_person" })}
+                                                onBlur={() => setFocusedCell(null)}
                                                 className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
                                             />
                                         </TableCell>
                                         <TableCell>
                                             <Input
-                                                value={record.student_address}
-                                                onChange={(e) => updateRecord(index, "student_address", e.target.value)}
+                                                value={record.v_company_contact_number}
+                                                onChange={(e) => updateRecord(index, "v_company_contact_number", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "v_company_contact_number" })}
+                                                onBlur={() => setFocusedCell(null)}
                                                 className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
                                             />
                                         </TableCell>
                                         <TableCell>
                                             <Input
-                                                value={record.placed_year}
-                                                onChange={(e) => updateRecord(index, "placed_year", e.target.value)}
+                                                value={record.v_company_mail_id}
+                                                onChange={(e) => updateRecord(index, "v_company_mail_id", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "v_company_mail_id" })}
+                                                onBlur={() => setFocusedCell(null)}
                                                 className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
                                             />
                                         </TableCell>
                                         <TableCell>
+                                            <Select
+                                                value={record.company_type}
+                                                onValueChange={(val) => updateRecord(index, "company_type", val)}
+                                            >
+                                                <SelectTrigger
+                                                    className="h-8 border-transparent hover:border-input focus:border-ring"
+                                                    onFocus={() => setFocusedCell({ index, field: "company_type" })}
+                                                    onBlur={() => setFocusedCell(null)}
+                                                >
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="IT">IT</SelectItem>
+                                                    <SelectItem value="CORE">CORE</SelectItem>
+                                                    <SelectItem value="BPO">BPO</SelectItem>
+                                                    <SelectItem value="OTHER">OTHER</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </TableCell>
+                                        <TableCell>
                                             <Input
-                                                value={record.placed_sem}
-                                                onChange={(e) => updateRecord(index, "placed_sem", e.target.value)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
+                                                value={record.salary_package}
+                                                onChange={(e) => updateRecord(index, "salary_package", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "salary_package" })}
+                                                onBlur={() => setFocusedCell(null)}
+                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors font-medium"
+                                                placeholder="e.g. 4.5 LPA"
                                             />
                                         </TableCell>
                                         <TableCell>
                                             <Input
-                                                type="date"
-                                                value={record.date_of_join}
-                                                onChange={(e) => updateRecord(index, "date_of_join", e.target.value)}
+                                                value={record.remark}
+                                                onChange={(e) => updateRecord(index, "remark", e.target.value)}
+                                                onFocus={() => setFocusedCell({ index, field: "remark" })}
+                                                onBlur={() => setFocusedCell(null)}
                                                 className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
                                             />
                                         </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.reference}
-                                                onChange={(e) => updateRecord(index, "reference", e.target.value)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
+                                        {customColumns.map(col => (
+                                            <TableCell key={col}>
+                                                <Input
+                                                    value={record[col] || ""}
+                                                    onChange={(e) => updateRecord(index, col, e.target.value)}
+                                                    onFocus={() => setFocusedCell({ index, field: col })}
+                                                    onBlur={() => setFocusedCell(null)}
+                                                    className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
+                                                />
+                                            </TableCell>
+                                        ))}
                                         <TableCell className="sticky right-0 bg-background z-10 text-right">
                                             <Button
                                                 variant="ghost"

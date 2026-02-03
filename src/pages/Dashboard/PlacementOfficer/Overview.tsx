@@ -46,10 +46,10 @@ export default function TPOOverview() {
     queryKey: ["companies-count"],
     queryFn: async () => {
       // Count unique company names from placement_records
-      const { data } = await supabase.from("placement_records" as any).select("company_name");
+      const { data } = await (supabase.from("placement_records" as any) as any).select("v_company_name");
       if (!data) return 0;
       // Get unique company names
-      const uniqueCompanies = new Set(data.map((r: any) => r.company_name?.toLowerCase().trim()));
+      const uniqueCompanies = new Set(data.map((r: any) => r.v_company_name?.toLowerCase().trim()).filter(Boolean));
       return uniqueCompanies.size;
     },
   });
@@ -58,16 +58,10 @@ export default function TPOOverview() {
   const { data: drivesCount, isLoading: loadingDrives } = useQuery({
     queryKey: ["drives-count"],
     queryFn: async () => {
-      // Count unique "Company + Date + Dept" combinations or just simple drives? 
-      // User asked to use placement_record. We can count unique (Company Name) entries as proxy for drives
-      // OR we can just count records. Let's stick to unique Companies visited for now as "Drives" proxy
-      // since one company usually does one drive per year.
-      const { data } = await supabase.from("placement_records" as any).select("company_name, date_of_join"); // date_of_join is usually later.
-      // Actually, let's just count unique companies for now as the user prompt is vague on "Drives", 
-      // but typically "Drives" = "Companies Visited".
+      const { data } = await (supabase.from("placement_records" as any) as any).select("v_company_name");
       if (!data) return 0;
-      const uniqueDrives = new Set(data.map((r: any) => r.company_name?.toLowerCase().trim()));
-      return uniqueDrives.size; // Same as companies for now
+      const uniqueDrives = new Set(data.map((r: any) => r.v_company_name?.toLowerCase().trim()).filter(Boolean));
+      return uniqueDrives.size;
     },
   });
 
@@ -75,21 +69,13 @@ export default function TPOOverview() {
   const { data: selectionsData, isLoading: loadingSelections } = useQuery({
     queryKey: ["selections-total"],
     queryFn: async () => {
-      const { data } = await supabase.from("placement_records" as any).select("*");
+      const { data } = await (supabase.from("placement_records" as any) as any).select("v_visit_type");
       if (!data) return { selected: 0, appeared: 0 };
 
-      const placedCount = data.filter((r: any) =>
-        r.internship_or_placed?.toLowerCase() === 'placed' ||
-        r.internship_or_placed?.toLowerCase() === 'both'
-      ).length;
-
-      // For appeared, we might not have data in this table, but for now let's assume
-      // total records is a proxy or we just show N/A if needed. 
-      // User asked to use stats from THIS RECORD. 
-      // Let's treat total rows as "Students with Offers/Activity"
+      // Since the master data represents placements, every row is a selection
       return {
-        selected: placedCount,
-        appeared: data.length // This is strictly "Students recorded in the sheet"
+        selected: data.length,
+        appeared: data.length // Proxy for appeared if we don't have rejection data
       };
     },
   });
@@ -98,28 +84,26 @@ export default function TPOOverview() {
   const { data: deptStats } = useQuery({
     queryKey: ["dept-stats"],
     queryFn: async () => {
-      const { data: records } = await supabase.from("placement_records" as any).select("department, internship_or_placed");
+      const { data: records } = await (supabase.from("placement_records" as any) as any).select("v_location, v_visit_type"); // Map location as dept for now if dept is missing
 
       if (!records) return [];
 
-      // Group by department
+      // Group by location as a proxy for department/region in the new master data
       const deptMap: Record<string, { selected: number; total: number }> = {};
 
       records.forEach((r: any) => {
-        const dept = r.department || "Unknown";
+        const dept = r.v_location || "Unknown Location";
         if (!deptMap[dept]) deptMap[dept] = { selected: 0, total: 0 };
 
         deptMap[dept].total += 1;
-        if (r.internship_or_placed?.toLowerCase() === 'placed' || r.internship_or_placed?.toLowerCase() === 'both') {
-          deptMap[dept].selected += 1;
-        }
+        deptMap[dept].selected += 1;
       });
 
       return Object.entries(deptMap).map(([name, stats]) => ({
         name,
         selected: stats.selected,
-        appeared: stats.total, // Using total records as proxy for appeared in this context
-        rate: stats.total > 0 ? Math.round((stats.selected / stats.total) * 100) : 0,
+        appeared: stats.total,
+        rate: 100, // Every record in master data is a success usually
       }));
     },
   });
@@ -128,18 +112,27 @@ export default function TPOOverview() {
   const { data: recentDrives } = useQuery({
     queryKey: ["recent-drives"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("placement_drives")
+      const { data } = await (supabase
+        .from("placement_records" as any) as any)
         .select(`
           id,
-          visit_date,
-          drive_type,
-          role_offered,
-          companies (name)
+          created_at,
+          v_visit_type,
+          v_company_name,
+          date_of_visit,
+          v_company_designation
         `)
-        .order("visit_date", { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(5);
-      return data || [];
+
+      // Map to match the UI expectation
+      return data?.map((d: any) => ({
+        id: d.id,
+        visit_date: d.date_of_visit || d.created_at,
+        drive_type: d.v_visit_type || "On Campus",
+        role_offered: d.v_company_designation,
+        companies: { name: d.v_company_name }
+      })) || [];
     },
   });
 
@@ -147,11 +140,11 @@ export default function TPOOverview() {
   const { data: driveTypeData } = useQuery({
     queryKey: ["drive-types"],
     queryFn: async () => {
-      const { data } = await supabase.from("placement_records" as any).select("internship_or_placed");
+      const { data } = await (supabase.from("placement_records" as any) as any).select("v_visit_type");
       if (!data) return [];
 
       const counts = data.reduce((acc: any, d: any) => {
-        const type = d.internship_or_placed || "Unknown";
+        const type = d.v_visit_type || "Unknown";
         acc[type] = (acc[type] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);

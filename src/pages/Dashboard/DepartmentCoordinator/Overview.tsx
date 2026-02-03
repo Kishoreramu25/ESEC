@@ -53,9 +53,9 @@ export default function CoordinatorOverview() {
     queryKey: ["dept-drives-count", departmentId],
     queryFn: async () => {
       if (!department?.code) return 0;
-      // Count unique companies for this dept in placement_records
+      // Count unique companies for this dept from student_placements
       const { data } = await supabase
-        .from("placement_records" as any)
+        .from("student_placements" as any)
         .select("company_name")
         .eq("department", department.code);
 
@@ -74,23 +74,25 @@ export default function CoordinatorOverview() {
       if (!department?.code) return defaults;
 
       const { data } = await supabase
-        .from("placement_records" as any)
+        .from("student_placements" as any)
         .select("*")
         .eq("department", department.code);
 
       if (!data || data.length === 0) return defaults;
 
-      // Basic Counts
+      // Basic Counts - Use offer_type
       const placedCount = data.filter((r: any) =>
-        r.internship_or_placed?.toLowerCase() === 'placed'
+        r.offer_type?.toLowerCase().includes('placed') ||
+        r.offer_type?.toLowerCase().includes('on campus') ||
+        r.offer_type?.toLowerCase().includes('off campus')
       ).length;
 
       const internshipCount = data.filter((r: any) =>
-        r.internship_or_placed?.toLowerCase() === 'internship'
+        r.offer_type?.toLowerCase().includes('internship')
       ).length;
 
       const bothCount = data.filter((r: any) =>
-        r.internship_or_placed?.toLowerCase() === 'both'
+        r.offer_type?.toLowerCase().includes('both')
       ).length;
 
       // Stats for cards (Both counts as placed for "Students Placed" usually, or handled separately)
@@ -107,10 +109,10 @@ export default function CoordinatorOverview() {
       // Data for Bar Chart (Year-wise placement trend)
       const yearMap = new Map();
       data.forEach((r: any) => {
-        if (['placed', 'both'].includes(r.internship_or_placed?.toLowerCase())) {
-          const year = r.placed_year || 'Unknown';
-          yearMap.set(year, (yearMap.get(year) || 0) + 1);
-        }
+        // Extract year from join_date or created_at
+        const dateStr = r.join_date || r.created_at;
+        const year = dateStr ? new Date(dateStr).getFullYear().toString() : 'Unknown';
+        yearMap.set(year, (yearMap.get(year) || 0) + 1);
       });
 
       const barData = Array.from(yearMap.entries())

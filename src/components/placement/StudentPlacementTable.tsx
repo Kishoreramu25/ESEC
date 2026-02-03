@@ -39,7 +39,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Pencil, Trash2, Plus, Search, FileDown, Columns } from "lucide-react";
+import { Pencil, Trash2, Plus, Search, FileDown, Columns, X } from "lucide-react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import * as XLSX from "xlsx";
@@ -126,16 +126,44 @@ export function StudentPlacementTable() {
     });
 
     // Filter
-    const filteredData = placements?.filter(p =>
-        p.student_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.student_id?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredData = placements?.filter((p: any) => {
+        const searchLower = searchTerm.toLowerCase();
+        const matchesStandard =
+            p.student_name?.toLowerCase().includes(searchLower) ||
+            p.company_name?.toLowerCase().includes(searchLower) ||
+            p.student_id?.toLowerCase().includes(searchLower);
+
+        if (matchesStandard) return true;
+
+        if (p.other_details) {
+            const details = p.other_details as Record<string, any>;
+            return customColumns.some(col =>
+                String(details[col] || "").toLowerCase().includes(searchLower)
+            );
+        }
+        return false;
+    });
 
     // Export to Excel
     const handleExport = () => {
         if (!filteredData || !filteredData.length) return;
-        const ws = XLSX.utils.json_to_sheet(filteredData);
+
+        // Flatten data for export
+        const exportData = filteredData.map(record => {
+            const { other_details, ...rest } = record;
+            const flattened: Record<string, any> = { ...rest };
+
+            // Add custom columns
+            if (other_details) {
+                const details = other_details as Record<string, any>;
+                customColumns.forEach(col => {
+                    flattened[col] = details[col] || "";
+                });
+            }
+            return flattened;
+        });
+
+        const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Placements");
         XLSX.writeFile(wb, "Student_Placement_Records.xlsx");
@@ -194,7 +222,26 @@ export function StudentPlacementTable() {
                             <TableHead className="font-bold">Join Date</TableHead>
                             <TableHead className="font-bold">Ref</TableHead>
                             {customColumns.map(col => (
-                                <TableHead key={col} className="font-bold capitalize">{col}</TableHead>
+                                <TableHead key={col} className="font-bold capitalize group min-w-[120px]">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span>{col}</span>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
+                                            onClick={() => {
+                                                if (window.confirm(`Remove column "${col}" from view? Data will be preserved.`)) {
+                                                    const newColumns = customColumns.filter(c => c !== col);
+                                                    setCustomColumns(newColumns);
+                                                    localStorage.setItem("placement_custom_columns", JSON.stringify(newColumns));
+                                                    toast.success("Column removed");
+                                                }
+                                            }}
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                    </div>
+                                </TableHead>
                             ))}
                             <TableHead className="text-right font-bold sticky right-0 bg-background shadow-sm">Actions</TableHead>
                         </TableRow>

@@ -23,7 +23,7 @@ export default function Statistics() {
   const { data: statsData, isLoading } = useQuery({
     queryKey: ["all-statistics"],
     queryFn: async () => {
-      const { data } = await supabase.from("placement_records" as any).select("*");
+      const { data } = await (supabase.from("placement_records" as any) as any).select("*");
       if (!data) return [];
 
       // Aggregate manually
@@ -31,34 +31,30 @@ export default function Statistics() {
       const statsMap = new Map();
 
       data.forEach((r: any) => {
-        const dept = r.department || "Unknown";
-        const company = r.company_name || "Unknown";
+        const dept = "General"; // Reverting to General institutional view
+        const company = r.v_company_name || "Unknown";
         const key = `${dept}-${company}`;
 
         if (!statsMap.has(key)) {
           statsMap.set(key, {
             id: r.id,
-            students_appeared: 0, // We can't really know total appeared from just "Placement Records" usually, unless it contains failed students too. Assume count = selected for now or simple count.
+            students_appeared: 0,
             students_selected: 0,
             ppo_count: 0,
             departments: { name: dept, code: dept },
             placement_drives: {
-              visit_date: r.date_of_join || r.created_at,
+              visit_date: r.date_of_visit || r.created_at,
               companies: { name: company }
             }
           });
         }
 
         const entry = statsMap.get(key);
-        entry.students_appeared += 1; // Total rows for this dept+company = appeared (proxy)
+        entry.students_appeared += 1;
 
-        const type = r.internship_or_placed?.toLowerCase();
-        if (type === 'placed' || type === 'both') {
-          entry.students_selected += 1;
-        }
-        if (type === 'internship' || type === 'both') {
-          entry.ppo_count += 1;
-        }
+        const type = r.v_visit_type?.toLowerCase();
+        // Since the template records represent selections, we count them as selected
+        entry.students_selected += 1;
       });
 
       return Array.from(statsMap.values());

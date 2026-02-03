@@ -36,12 +36,15 @@ export default function ManagementOverview() {
   const { data: overallStats, isLoading: loadingStats } = useQuery({
     queryKey: ["management-overall-stats"],
     queryFn: async () => {
-      const { data } = await supabase.from("selection_statistics").select("students_appeared, students_selected, ppo_count");
+      const { data } = await (supabase.from("placement_records" as any) as any).select("v_visit_type, salary_package");
       if (!data) return { appeared: 0, selected: 0, ppo: 0 };
+
+      const ppos = data.filter((r: any) => r.v_visit_type?.toLowerCase().includes("ppo")).length;
+
       return {
-        appeared: data.reduce((sum, s) => sum + (s.students_appeared || 0), 0),
-        selected: data.reduce((sum, s) => sum + (s.students_selected || 0), 0),
-        ppo: data.reduce((sum, s) => sum + (s.ppo_count || 0), 0),
+        appeared: data.length,
+        selected: data.length, // Every row is a selection in master data
+        ppo: ppos,
       };
     },
   });
@@ -50,66 +53,28 @@ export default function ManagementOverview() {
   const { data: companiesCount } = useQuery({
     queryKey: ["companies-count-mgmt"],
     queryFn: async () => {
-      const { count } = await supabase.from("companies").select("*", { count: "exact", head: true });
-      return count || 0;
+      const { data } = await (supabase.from("placement_records" as any) as any).select("v_company_name");
+      if (!data) return 0;
+      return new Set(data.map((r: any) => r.v_company_name?.toLowerCase().trim())).size;
     },
   });
 
-  // Fetch department-wise performance
-  const { data: deptPerformance } = useQuery({
-    queryKey: ["dept-performance"],
-    queryFn: async () => {
-      const { data: depts } = await supabase.from("departments").select("id, name, code");
-      const { data: stats } = await supabase.from("selection_statistics").select("department_id, students_selected, students_appeared");
-
-      if (!depts || !stats) return [];
-
-      return depts
-        .map((dept) => {
-          const deptData = stats.filter((s) => s.department_id === dept.id);
-          const selected = deptData.reduce((sum, s) => sum + (s.students_selected || 0), 0);
-          const appeared = deptData.reduce((sum, s) => sum + (s.students_appeared || 0), 0);
-          return {
-            name: dept.code,
-            fullName: dept.name,
-            placed: selected,
-            appeared,
-            rate: appeared > 0 ? Math.round((selected / appeared) * 100) : 0,
-          };
-        })
-        .sort((a, b) => b.rate - a.rate);
-    },
-  });
 
   // Fetch top companies by hires
   const { data: topCompanies } = useQuery({
     queryKey: ["top-companies"],
     queryFn: async () => {
-      const { data: drives } = await supabase.from("placement_drives").select(`
-        id,
-        companies (id, name)
-      `);
-      const { data: stats } = await supabase.from("selection_statistics").select("drive_id, students_selected");
+      const { data } = await (supabase.from("placement_records" as any) as any).select("v_company_name");
+      if (!data) return [];
 
-      if (!drives || !stats) return [];
-
-      const companyHires: Record<string, { name: string; hires: number }> = {};
-
-      drives.forEach((drive) => {
-        const company = drive.companies as any;
-        if (!company) return;
-
-        const driveStats = stats.filter((s) => s.drive_id === drive.id);
-        const totalHires = driveStats.reduce((sum, s) => sum + (s.students_selected || 0), 0);
-
-        if (!companyHires[company.id]) {
-          companyHires[company.id] = { name: company.name, hires: 0 };
-        }
-        companyHires[company.id].hires += totalHires;
+      const companyHires: Record<string, number> = {};
+      data.forEach((r: any) => {
+        const name = r.v_company_name || "Unknown";
+        companyHires[name] = (companyHires[name] || 0) + 1;
       });
 
-      return Object.values(companyHires)
-        .filter((c) => c.hires > 0)
+      return Object.entries(companyHires)
+        .map(([name, hires]) => ({ name, hires }))
         .sort((a, b) => b.hires - a.hires)
         .slice(0, 5);
     },
@@ -119,11 +84,12 @@ export default function ManagementOverview() {
   const { data: driveTypeData } = useQuery({
     queryKey: ["drive-types-mgmt"],
     queryFn: async () => {
-      const { data } = await supabase.from("placement_drives").select("drive_type");
+      const { data } = await (supabase.from("placement_records" as any) as any).select("v_visit_type");
       if (!data) return [];
 
-      const counts = data.reduce((acc, d) => {
-        acc[d.drive_type] = (acc[d.drive_type] || 0) + 1;
+      const counts = data.reduce((acc: any, d: any) => {
+        const type = d.v_visit_type || "Unknown";
+        acc[type] = (acc[type] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
 
@@ -196,39 +162,6 @@ export default function ManagementOverview() {
 
         {/* Charts Row */}
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Department Performance */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Department Performance</CardTitle>
-              <CardDescription>Placement rates by department</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[300px]">
-                {deptPerformance && deptPerformance.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={deptPerformance} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis type="number" domain={[0, 100]} className="text-xs" />
-                      <YAxis type="category" dataKey="name" className="text-xs" width={50} />
-                      <Tooltip
-                        formatter={(value: number) => [`${value}%`, "Placement Rate"]}
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "8px",
-                        }}
-                      />
-                      <Bar dataKey="rate" fill="hsl(221, 83%, 53%)" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-full items-center justify-center text-muted-foreground">
-                    No data available
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
 
           {/* Drive Type Distribution */}
           <Card>
@@ -271,7 +204,7 @@ export default function ManagementOverview() {
               </div>
               {driveTypeData && driveTypeData.length > 0 && (
                 <div className="flex justify-center gap-6 mt-4">
-                  {driveTypeData.map((entry, index) => (
+                  {(driveTypeData as { name: string; value: number }[]).map((entry, index) => (
                     <div key={entry.name} className="flex items-center gap-2">
                       <div
                         className="h-3 w-3 rounded-full"

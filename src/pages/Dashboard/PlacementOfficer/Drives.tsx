@@ -120,10 +120,10 @@ export default function Drives() {
   const { data: drives, isLoading } = useQuery({
     queryKey: ["drives", searchQuery],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("placement_records" as any)
+      const { data, error } = await (supabase
+        .from("placement_records" as any) as any)
         .select("*")
-        .order("date_of_join", { ascending: false });
+        .order("date_of_visit", { ascending: false });
 
       if (error) throw error;
 
@@ -131,22 +131,24 @@ export default function Drives() {
       const uniqueDrivesMap = new Map();
 
       (data || []).forEach((record: any) => {
-        const companyName = record.company_name;
+        const companyName = record.v_company_name;
         if (!companyName) return;
 
         const key = companyName.toLowerCase();
 
         if (!uniqueDrivesMap.has(key)) {
+          const ctcLpa = record.salary_package ? parseFloat(record.salary_package.replace(/[^0-9.]/g, '')) : null;
+
           uniqueDrivesMap.set(key, {
             id: record.id,
-            visit_date: record.date_of_join || record.created_at,
-            drive_type: record.internship_or_placed?.toLowerCase() || 'placement',
+            visit_date: record.date_of_visit || record.created_at,
+            drive_type: record.v_visit_type?.toLowerCase() || 'placement',
             visit_mode: 'on_campus',
-            role_offered: record.placed_student_name ? "Recorded" : null,
-            ctc_amount: parseFloat(record.package_lpa) * 100000 || null,
+            role_offered: null,
+            ctc_amount: ctcLpa ? ctcLpa * 100000 : null,
             stipend_amount: null,
             companies: { name: companyName },
-            academic_years: { year_label: record.placed_year || new Date().getFullYear().toString() }
+            academic_years: { year_label: new Date(record.date_of_visit || record.created_at).getFullYear().toString() }
           });
         }
       });
@@ -203,50 +205,28 @@ export default function Drives() {
   // Save mutation
   const saveMutation = useMutation({
     mutationFn: async (data: DriveFormData) => {
-      const driveData = {
-        company_id: data.company_id,
-        academic_year_id: data.academic_year_id,
-        drive_type: data.drive_type,
-        role_offered: data.role_offered || null,
-        visit_date: data.visit_date,
-        visit_time: data.visit_time || null,
-        visit_mode: data.visit_mode,
-        stipend_amount: data.stipend_amount,
-        ctc_amount: data.ctc_amount,
-        remarks: data.remarks || null,
-        created_by: user?.id,
+      // Get company name from ID
+      const companyName = companies?.find(c => c.id === data.company_id)?.name || "Unknown Company";
+
+      const recordData = {
+        v_company_name: companyName,
+        date_of_visit: data.visit_date,
+        v_visit_type: data.drive_type,
+        salary_package: data.ctc_amount ? `${(data.ctc_amount / 100000).toFixed(1)} LPA` : null,
+        remark: data.remarks || null,
       };
 
-      let driveId: string;
-
       if (editingDrive) {
-        const { error } = await supabase
-          .from("placement_drives")
-          .update(driveData)
+        const { error } = await (supabase
+          .from("placement_records" as any) as any)
+          .update(recordData)
           .eq("id", editingDrive.id);
         if (error) throw error;
-        driveId = editingDrive.id;
-
-        // Delete existing eligible departments
-        await supabase.from("drive_eligible_departments").delete().eq("drive_id", driveId);
       } else {
-        const { data: newDrive, error } = await supabase
-          .from("placement_drives")
-          .insert(driveData)
-          .select("id")
-          .single();
+        const { error } = await (supabase
+          .from("placement_records" as any) as any)
+          .insert([recordData]);
         if (error) throw error;
-        driveId = newDrive.id;
-      }
-
-      // Insert eligible departments
-      if (data.eligible_departments.length > 0) {
-        const deptRecords = data.eligible_departments.map((deptId) => ({
-          drive_id: driveId,
-          department_id: deptId,
-        }));
-        const { error: deptError } = await supabase.from("drive_eligible_departments").insert(deptRecords);
-        if (deptError) throw deptError;
       }
     },
     onSuccess: () => {
@@ -265,7 +245,9 @@ export default function Drives() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("placement_drives").delete().eq("id", id);
+      const { error } = await (supabase.from("placement_records" as any) as any)
+        .delete()
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
