@@ -32,16 +32,25 @@ interface Department {
 
 const roleCards = [
   {
-    value: "placement_officer" as AppRole,
+    id: "tpo",
+    role: "placement_officer" as AppRole,
     label: "Placement Officer",
     description: "Full admin access to manage companies, drives, and statistics",
     icon: Users,
   },
   {
-    value: "department_coordinator" as AppRole,
+    id: "hod",
+    role: "department_coordinator" as AppRole,
     label: "HOD",
     description: "Department-scoped access to view drives and student placements",
     icon: BookOpen,
+  },
+  {
+    id: "faculty",
+    role: "department_coordinator" as AppRole,
+    label: "Faculty",
+    description: "Faculty access to view drives and student placements",
+    icon: GraduationCap,
   },
 ];
 
@@ -51,7 +60,7 @@ export default function Auth() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [selectedRole, setSelectedRole] = useState<AppRole | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { user, role, signIn, signUp } = useAuth();
 
@@ -209,8 +218,8 @@ export default function Auth() {
     }
   };
 
-  const handleRoleSelect = (role: AppRole) => {
-    setSelectedRole(role);
+  const handleRoleSelect = (id: string, role: AppRole) => {
+    setSelectedCardId(id);
     signupForm.setValue("role", role);
     if (role !== "department_coordinator") {
       signupForm.setValue("departmentId", null);
@@ -345,12 +354,12 @@ export default function Auth() {
                       <div className="grid gap-3">
                         {roleCards.map((roleCard) => (
                           <button
-                            key={roleCard.value}
+                            key={roleCard.id}
                             type="button"
-                            onClick={() => handleRoleSelect(roleCard.value)}
+                            onClick={() => handleRoleSelect(roleCard.id, roleCard.role)}
                             className={cn(
                               "flex items-start gap-4 p-4 rounded-lg border-2 text-left transition-all",
-                              selectedRole === roleCard.value
+                              selectedCardId === roleCard.id
                                 ? "border-primary bg-primary/5"
                                 : "border-border hover:border-primary/50"
                             )}
@@ -358,7 +367,7 @@ export default function Auth() {
                             <div
                               className={cn(
                                 "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-                                selectedRole === roleCard.value
+                                selectedCardId === roleCard.id
                                   ? "bg-primary text-primary-foreground"
                                   : "bg-muted text-muted-foreground"
                               )}
@@ -382,7 +391,7 @@ export default function Auth() {
                     </div>
 
                     {/* Department Selection (for coordinators) */}
-                    {selectedRole === "department_coordinator" && (
+                    {(selectedCardId === "hod" || selectedCardId === "faculty") && (
                       <div className="space-y-2">
                         <Label>Department</Label>
                         <Select

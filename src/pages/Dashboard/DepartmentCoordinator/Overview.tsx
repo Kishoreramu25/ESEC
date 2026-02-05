@@ -284,16 +284,12 @@ export default function CoordinatorOverview() {
         </div>
 
         {/* Placement Record Table (Company Drives) */}
+        {/* Placement Record Table (Company Drives) */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-tight">Placement Drives</h2>
+            <h2 className="text-xl font-bold tracking-tight">Placement Record Feed</h2>
           </div>
           <PlacementRecordTable />
-        </div>
-
-        {/* Student Placement Table (Individual Offers) */}
-        <div className="space-y-4 pt-8">
-          <StudentPlacementTable />
         </div>
       </div>
     </DashboardLayout >

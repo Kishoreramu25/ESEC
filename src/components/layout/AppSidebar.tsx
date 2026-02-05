@@ -46,9 +46,8 @@ const tpoNavItems: NavItem[] = [
 ];
 
 const coordinatorNavItems: NavItem[] = [
-  { title: "Overview", url: "/dashboard/coordinator", icon: LayoutDashboard },
-  { title: "Placement Drives", url: "/dashboard/coordinator/drives", icon: CalendarDays },
-  { title: "Placement Records", url: "/dashboard/coordinator/student-placements", icon: Briefcase },
+  { title: "OVERALL RECORD", url: "/dashboard/coordinator", icon: LayoutDashboard },
+  { title: "MY RECORDS", url: "/dashboard/coordinator/student-placements", icon: Briefcase },
 ];
 
 const managementNavItems: NavItem[] = [
