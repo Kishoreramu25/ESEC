@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Save, Trash2, Upload, Loader2, RefreshCw, Download, Clipboard } from "lucide-react";
+import { Plus, Save, Trash2, Upload, Loader2, RefreshCw, Download, Clipboard, Eye, EyeOff, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -46,6 +46,7 @@ export function PlacementRecordTable() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [focusedCell, setFocusedCell] = useState<{ index: number, field: string } | null>(null);
     const [customColumns, setCustomColumns] = useState<string[]>([]);
+    const [hideEmpty, setHideEmpty] = useState(false);
 
     const COLUMN_KEYS: (keyof PlacementRecord)[] = [
         "v_visit_type",
@@ -691,6 +692,15 @@ export function PlacementRecordTable() {
                             )}
                             Save Changes
                         </Button>
+                        <Button
+                            variant={hideEmpty ? "secondary" : "outline"}
+                            onClick={() => setHideEmpty(!hideEmpty)}
+                            className="shadow-sm whitespace-nowrap"
+                            title={hideEmpty ? "Show all columns/rows" : "Hide empty columns/rows"}
+                        >
+                            {hideEmpty ? <Eye className="mr-2 h-4 w-4" /> : <EyeOff className="mr-2 h-4 w-4" />}
+                            {hideEmpty ? "Unhide Empty" : "Hide Empty"}
+                        </Button>
                     </div>
                 </div>
 
@@ -802,190 +812,191 @@ export function PlacementRecordTable() {
             </CardHeader>
             <CardContent className="p-0">
                 <div className="rounded-none border-t overflow-x-auto relative">
-                    <Table className="min-w-[2000px]">
-                        <TableHeader className="bg-muted/50 sticky top-0 z-10">
-                            <TableRow>
-                                <TableHead className="w-[50px] sticky left-0 bg-muted/50 z-20">S.No</TableHead>
-                                <TableHead className="min-w-[120px]">Visit Type</TableHead>
-                                <TableHead className="min-w-[130px]">Date of Visit</TableHead>
-                                <TableHead className="min-w-[180px]">Company Name</TableHead>
-                                <TableHead className="min-w-[200px]">Company Address</TableHead>
-                                <TableHead className="min-w-[150px]">Location</TableHead>
-                                <TableHead className="min-w-[150px]">Contact Person</TableHead>
-                                <TableHead className="min-w-[150px]">Contact Number</TableHead>
-                                <TableHead className="min-w-[180px]">Company Mail ID</TableHead>
-                                <TableHead className="min-w-[120px]">Company Type</TableHead>
-                                <TableHead className="min-w-[120px]">Salary Package</TableHead>
-                                <TableHead className="min-w-[150px]">Remark</TableHead>
-                                {customColumns.map(col => (
-                                    <TableHead key={col} className="min-w-[150px]">{col}</TableHead>
-                                ))}
-                                <TableHead className="w-[80px] text-right sticky right-0 bg-muted/50 z-20">Actions</TableHead>
-                            </TableRow>
+                    <Table className="min-w-[1800px] border-collapse">
+                        <TableHeader className="bg-muted/30">
+                            {(() => {
+                                const standardCols = [
+                                    { key: "v_visit_type", label: "Visit Type" },
+                                    { key: "date_of_visit", label: "Date" },
+                                    { key: "v_company_name", label: "Company Name" },
+                                    { key: "v_company_address", label: "Company Address" },
+                                    { key: "v_location", label: "Location" },
+                                    { key: "v_company_contact_person", label: "Contact Person" },
+                                    { key: "v_company_contact_number", label: "Phone" },
+                                    { key: "v_company_mail_id", label: "Email" },
+                                    { key: "company_type", label: "Sector" },
+                                    { key: "salary_package", label: "Package" },
+                                    { key: "remark", label: "Remarks" }
+                                ];
+
+                                const isCellEmpty = (val: any) => val === null || val === undefined || val === "";
+
+                                const isColEmpty = (key: string) => {
+                                    return filteredRecords.every(r => isCellEmpty(r[key]));
+                                };
+
+                                const visibleStandardCols = hideEmpty
+                                    ? standardCols.filter(col => !isColEmpty(col.key))
+                                    : standardCols;
+
+                                const visibleCustomCols = hideEmpty
+                                    ? customColumns.filter(col => !isColEmpty(col))
+                                    : customColumns;
+
+                                return (
+                                    <TableRow className="hover:bg-transparent border-b-2">
+                                        <TableHead className="w-[60px] font-bold text-primary">S.No</TableHead>
+                                        {visibleStandardCols.map(col => (
+                                            <TableHead key={col.key} className="font-bold text-primary">{col.label}</TableHead>
+                                        ))}
+                                        {visibleCustomCols.map(col => (
+                                            <TableHead key={col} className="font-bold text-primary group">
+                                                <div className="flex items-center justify-between">
+                                                    <span>{col}</span>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        onClick={() => {
+                                                            if (confirm(`Remove column "${col}" from view?`)) {
+                                                                setCustomColumns(customColumns.filter(c => c !== col));
+                                                            }
+                                                        }}
+                                                    >
+                                                        <X className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                            </TableHead>
+                                        ))}
+                                        <TableHead className="w-[80px] text-right font-bold text-primary sticky right-0 bg-background/95 backdrop-blur-sm shadow-[-2px_0_5px_rgba(0,0,0,0.05)]">Actions</TableHead>
+                                    </TableRow>
+                                );
+                            })()}
                         </TableHeader>
                         <TableBody>
-                            {filteredRecords.length === 0 ? (
+                            {isLoading ? (
                                 <TableRow>
-                                    <TableCell colSpan={13} className="text-center h-32 text-muted-foreground">
-                                        No matching records found.
+                                    <TableCell colSpan={COLUMN_KEYS.length + customColumns.length + 2} className="h-32 text-center text-muted-foreground">
+                                        Loading records...
                                     </TableCell>
                                 </TableRow>
-                            ) : (
-                                filteredRecords.map((record, index) => (
-                                    <TableRow key={record.id || `temp-${index}`} className="hover:bg-muted/10">
-                                        <TableCell className="sticky left-0 bg-background z-10 font-medium">
-                                            {index + 1}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Select
-                                                value={record.v_visit_type}
-                                                onValueChange={(val) => updateRecord(index, "v_visit_type", val)}
-                                            >
-                                                <SelectTrigger
-                                                    className="h-8 border-transparent hover:border-input focus:border-ring"
-                                                    onFocus={() => setFocusedCell({ index, field: "v_visit_type" })}
-                                                    onBlur={() => setFocusedCell(null)}
-                                                >
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="On Campus">On Campus</SelectItem>
-                                                    <SelectItem value="Off Campus">Off Campus</SelectItem>
-                                                    <SelectItem value="Virtual">Virtual</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.date_of_visit}
-                                                onChange={(e) => updateRecord(index, "date_of_visit", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "date_of_visit" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                                placeholder="YYYY-MM-DD or Range"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.v_company_name}
-                                                onChange={(e) => updateRecord(index, "v_company_name", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "v_company_name" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.v_company_address}
-                                                onChange={(e) => updateRecord(index, "v_company_address", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "v_company_address" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.v_location}
-                                                onChange={(e) => updateRecord(index, "v_location", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "v_location" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.v_company_contact_person}
-                                                onChange={(e) => updateRecord(index, "v_company_contact_person", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "v_company_contact_person" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.v_company_contact_number}
-                                                onChange={(e) => updateRecord(index, "v_company_contact_number", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "v_company_contact_number" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.v_company_mail_id}
-                                                onChange={(e) => updateRecord(index, "v_company_mail_id", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "v_company_mail_id" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Select
-                                                value={record.company_type}
-                                                onValueChange={(val) => updateRecord(index, "company_type", val)}
-                                            >
-                                                <SelectTrigger
-                                                    className="h-8 border-transparent hover:border-input focus:border-ring"
-                                                    onFocus={() => setFocusedCell({ index, field: "company_type" })}
-                                                    onBlur={() => setFocusedCell(null)}
-                                                >
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="IT">IT</SelectItem>
-                                                    <SelectItem value="CORE">CORE</SelectItem>
-                                                    <SelectItem value="BPO">BPO</SelectItem>
-                                                    <SelectItem value="OTHER">OTHER</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.salary_package}
-                                                onChange={(e) => updateRecord(index, "salary_package", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "salary_package" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors font-medium"
-                                                placeholder="e.g. 4.5 LPA"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input
-                                                value={record.remark}
-                                                onChange={(e) => updateRecord(index, "remark", e.target.value)}
-                                                onFocus={() => setFocusedCell({ index, field: "remark" })}
-                                                onBlur={() => setFocusedCell(null)}
-                                                className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
-                                            />
-                                        </TableCell>
-                                        {customColumns.map(col => (
-                                            <TableCell key={col}>
+                            ) : filteredRecords.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={COLUMN_KEYS.length + customColumns.length + 2} className="h-32 text-center text-muted-foreground">
+                                        No records match your criteria. try adjusting filters.
+                                    </TableCell>
+                                </TableRow>
+                            ) : (() => {
+                                const standardCols = [
+                                    "v_visit_type", "date_of_visit", "v_company_name", "v_company_address",
+                                    "v_location", "v_company_contact_person", "v_company_contact_number",
+                                    "v_company_mail_id", "company_type", "salary_package", "remark"
+                                ];
+
+                                const isCellEmpty = (val: any) => val === null || val === undefined || val === "";
+
+                                const isColEmpty = (key: string) => {
+                                    return filteredRecords.every(r => isCellEmpty(r[key]));
+                                };
+
+                                const isRowEmpty = (r: PlacementRecord) => {
+                                    const standardEmpty = standardCols.every(key => isCellEmpty(r[key]));
+                                    const customEmpty = customColumns.every(key => isCellEmpty(r[key]));
+                                    return standardEmpty && customEmpty;
+                                };
+
+                                const visibleStandardCols = hideEmpty
+                                    ? standardCols.filter(key => !isColEmpty(key))
+                                    : standardCols;
+
+                                const visibleCustomCols = hideEmpty
+                                    ? customColumns.filter(key => !isColEmpty(key))
+                                    : customColumns;
+
+                                const rowsToShow = hideEmpty
+                                    ? filteredRecords.filter(r => !isRowEmpty(r))
+                                    : filteredRecords;
+
+                                return rowsToShow.map((record, index) => (
+                                    <TableRow key={record.id || index} className="group transition-colors hover:bg-muted/30">
+                                        <TableCell className="font-medium text-muted-foreground">{index + 1}</TableCell>
+                                        {visibleStandardCols.map(field => (
+                                            <TableCell key={field} className="p-1">
+                                                {field === "v_visit_type" || field === "company_type" ? (
+                                                    <Select
+                                                        value={record[field]}
+                                                        onValueChange={(val) => updateRecord(index, field as any, val)}
+                                                    >
+                                                        <SelectTrigger className="border-none shadow-none focus:ring-1 hover:bg-background h-8 transition-all px-2">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {field === "v_visit_type" ? (
+                                                                <>
+                                                                    <SelectItem value="On Campus">On Campus</SelectItem>
+                                                                    <SelectItem value="Off Campus">Off Campus</SelectItem>
+                                                                    <SelectItem value="Pooled">Pooled</SelectItem>
+                                                                    <SelectItem value="Internship/PPO">Internship/PPO</SelectItem>
+                                                                    <SelectItem value="Hackathon">Hackathon</SelectItem>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <SelectItem value="IT">IT</SelectItem>
+                                                                    <SelectItem value="CORE">CORE</SelectItem>
+                                                                    <SelectItem value="BPO">BPO</SelectItem>
+                                                                    <SelectItem value="OTHER">OTHER</SelectItem>
+                                                                </>
+                                                            )}
+                                                        </SelectContent>
+                                                    </Select>
+                                                ) : field === "date_of_visit" ? (
+                                                    <Input
+                                                        type="date"
+                                                        value={record.date_of_visit}
+                                                        onChange={(e) => updateRecord(index, "date_of_visit", e.target.value)}
+                                                        onFocus={() => setFocusedCell({ index, field: "date_of_visit" })}
+                                                        className="border-none shadow-none focus:ring-1 hover:bg-background h-8 transition-all px-2"
+                                                    />
+                                                ) : (
+                                                    <Input
+                                                        value={record[field]}
+                                                        onChange={(e) => updateRecord(index, field as any, e.target.value)}
+                                                        onFocus={() => setFocusedCell({ index, field: field as string })}
+                                                        className="border-none shadow-none focus:ring-1 hover:bg-background h-8 transition-all px-2"
+                                                        placeholder="..."
+                                                    />
+                                                )}
+                                            </TableCell>
+                                        ))}
+
+                                        {visibleCustomCols.map(col => (
+                                            <TableCell key={col} className="p-1">
                                                 <Input
                                                     value={record[col] || ""}
-                                                    onChange={(e) => updateRecord(index, col, e.target.value)}
+                                                    onChange={(e) => updateRecord(index, col as any, e.target.value)}
                                                     onFocus={() => setFocusedCell({ index, field: col })}
-                                                    onBlur={() => setFocusedCell(null)}
-                                                    className="h-8 border-transparent hover:border-input focus:border-ring transition-colors"
+                                                    className="border-none shadow-none focus:ring-1 hover:bg-background h-8 transition-all px-2 font-medium text-primary"
+                                                    placeholder="..."
                                                 />
                                             </TableCell>
                                         ))}
-                                        <TableCell className="sticky right-0 bg-background z-10 text-right">
+                                        <TableCell className="text-right sticky right-0 bg-background/95 backdrop-blur-sm shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l">
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
                                                 onClick={() => removeRow(index, record.id)}
+                                                className="text-destructive hover:bg-destructive/10 hover:text-destructive h-8 w-8 rounded-full transition-all"
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
+                                ));
+                            })()}
                         </TableBody>
                     </Table>
-                </div>
-            </CardContent>
-        </Card>
+                </div >
+            </CardContent >
+        </Card >
     );
 }

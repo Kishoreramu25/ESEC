@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,7 +9,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Controller } from "react-hook-form";
 import {
     Table,
     TableBody,
@@ -39,13 +38,11 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Pencil, Trash2, Plus, Search, FileDown, Columns, X, Upload, Clipboard, Loader2 } from "lucide-react";
+import { Pencil, Trash2, Plus, Search, FileDown, Columns, Upload, Clipboard, Eye, EyeOff, X } from "lucide-react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import * as XLSX from "xlsx";
-import { useRef } from "react";
 
-// Detailed Type Definition based on user request
 type StudentPlacement = {
     id: string;
     company_name: string;
@@ -54,9 +51,9 @@ type StudentPlacement = {
     hr_name: string;
     hr_mail: string;
     student_name: string;
-    student_id: string; // Register No
+    student_id: string;
     student_mail: string;
-    student_mobile: string; // New field
+    student_mobile: string;
     student_address: string;
     department: string;
     offer_type: string;
@@ -66,70 +63,89 @@ type StudentPlacement = {
     semester: number;
     join_date: string;
     ref_no: string;
-    // Dynamic fields storage
     other_details?: Record<string, string>;
 };
 
 export function StudentPlacementTable() {
     const queryClient = useQueryClient();
     const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [isColumnDialogOpen, setIsColumnDialogOpen] = useState(false); // New Dialog State
-    const [newColumnName, setNewColumnName] = useState(""); // New Column Input
+    const [isColumnDialogOpen, setIsColumnDialogOpen] = useState(false);
+    const [newColumnName, setNewColumnName] = useState("");
     const [editingId, setEditingId] = useState<string | null>(null);
     const [filters, setFilters] = useState<Record<string, string>>({});
+    const [globalSearch, setGlobalSearch] = useState("");
 
-    const FILTER_FIELDS: Record<string, string> = {
-        company_name: "Company Name",
-        company_mail: "Company Mail",
-        company_address: "Company Address",
-        hr_name: "HR Name",
-        hr_mail: "HR Mail",
-        student_name: "Student Name",
-        department: "Dept",
-        offer_type: "Type",
-        salary: "Salary",
-        package_lpa: "Package (LPA)",
-        student_id: "Student ID",
-        student_mail: "Student Mail",
-        student_mobile: "Student Mobile",
-        student_address: "Student Address",
-        current_year: "Year",
-        semester: "Sem",
-        join_date: "Join Date"
-    };
-
-    const handleAddFilter = (key: string, value: string) => {
-        if (key && value) {
-            setFilters(prev => ({ ...prev, [key]: value }));
+    // Column Definitions State with LocalStorage Persistence
+    const [columnDefs, setColumnDefs] = useState<any[]>(() => {
+        const saved = localStorage.getItem("placement_column_defs");
+        const defaultCols = [
+            { key: "company_name", label: "Company Name", visible: true, isCustom: false },
+            { key: "company_mail", label: "Company Mail", visible: true, isCustom: false },
+            { key: "company_address", label: "Company Address", visible: true, isCustom: false },
+            { key: "hr_name", label: "HR Name", visible: true, isCustom: false },
+            { key: "hr_mail", label: "HR Mail", visible: true, isCustom: false },
+            { key: "student_name", label: "Student Name", visible: true, isCustom: false },
+            { key: "department", label: "Dept", visible: true, isCustom: false },
+            { key: "offer_type", label: "Type", visible: true, isCustom: false },
+            { key: "salary", label: "Salary", visible: true, isCustom: false },
+            { key: "package_lpa", label: "Package (LPA)", visible: true, isCustom: false },
+            { key: "student_id", label: "Student ID", visible: true, isCustom: false },
+            { key: "student_mail", label: "Student Mail", visible: true, isCustom: false },
+            { key: "student_mobile", label: "Student Mobile", visible: true, isCustom: false },
+            { key: "student_address", label: "Student Address", visible: true, isCustom: false },
+            { key: "current_year", label: "Year", visible: true, isCustom: false },
+            { key: "semester", label: "Sem", visible: true, isCustom: false },
+            { key: "join_date", label: "Join Date", visible: true, isCustom: false },
+            { key: "ref_no", label: "Ref", visible: true, isCustom: false },
+        ];
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            // Merge defaults in case new columns were added to code but not in local storage
+            const merged = defaultCols.map(def => {
+                const found = parsed.find((p: any) => p.key === def.key);
+                return found ? { ...def, ...found } : def;
+            });
+            // Add any custom columns from storage
+            const custom = parsed.filter((p: any) => p.isCustom);
+            return [...merged, ...custom];
         }
-    };
-
-    const removeFilter = (key: string) => {
-        const newFilters = { ...filters };
-        delete newFilters[key];
-        setFilters(newFilters);
-    };
-
-    // Load custom columns from local storage or empty
-    const [customColumns, setCustomColumns] = useState<string[]>(() => {
-        const saved = localStorage.getItem("placement_custom_columns");
-        return saved ? JSON.parse(saved) : [];
+        return defaultCols;
     });
 
     useEffect(() => {
-        localStorage.setItem("placement_custom_columns", JSON.stringify(customColumns));
-    }, [customColumns]);
+        localStorage.setItem("placement_column_defs", JSON.stringify(columnDefs));
+    }, [columnDefs]);
 
-    const handleAddColumn = () => {
+    // Header Editing State
+    const [editingHeaderKey, setEditingHeaderKey] = useState<string | null>(null);
+    const [tempHeaderName, setTempHeaderName] = useState("");
+
+    const handleHeaderRename = (key: string, newLabel: string) => {
+        setColumnDefs(prev => prev.map(col => col.key === key ? { ...col, label: newLabel } : col));
+        setEditingHeaderKey(null);
+    };
+
+    const handleHideColumn = (key: string) => {
+        if (window.confirm("Are you sure you want to hide this column?")) {
+            setColumnDefs(prev => prev.map(col => col.key === key ? { ...col, visible: false } : col));
+        }
+    };
+
+    const handleUnhideColumn = (key: string) => {
+        setColumnDefs(prev => prev.map(col => col.key === key ? { ...col, visible: true } : col));
+    };
+
+    const handleAddCustomColumn = () => {
         if (newColumnName.trim()) {
-            setCustomColumns([...customColumns, newColumnName.trim()]);
+            const key = newColumnName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            setColumnDefs(prev => [...prev, { key, label: newColumnName.trim(), visible: true, isCustom: true }]);
             setNewColumnName("");
             setIsColumnDialogOpen(false);
             toast.success(`Column "${newColumnName}" added`);
         }
     };
 
-    // Fetch Data
+    // Data Fetching
     const { data: placements, isLoading } = useQuery({
         queryKey: ["student-placements"],
         queryFn: async () => {
@@ -154,12 +170,11 @@ export function StudentPlacementTable() {
             queryClient.invalidateQueries({ queryKey: ["student-placements"] });
         },
         onError: (error) => {
-            toast.error("Failed to delete record: " + error.message);
+            toast.error("Failed to delete: " + error.message);
         }
     });
 
     // Bulk Insert Mutation
-    // Bulk Insert Mutation (Batched)
     const bulkInsertMutation = useMutation({
         mutationFn: async (records: Partial<StudentPlacement>[]) => {
             const BATCH_SIZE = 50;
@@ -174,431 +189,214 @@ export function StudentPlacementTable() {
             queryClient.invalidateQueries({ queryKey: ["student-placements"] });
         },
         onError: (error) => {
-            console.error(error);
-            toast.error("Failed to import records: " + error.message);
+            toast.error("Import failed: " + error.message);
         }
     });
 
-    // Helper: Map Excel Rows
+    // Excel Helper
     const mapExcelRowToStudentPlacement = (row: any): Partial<StudentPlacement> => {
         const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const findKey = (keys: string[], exclude: string[] = []) => {
+        const findKey = (keys: string[]) => {
             const rowKeys = Object.keys(row);
-            const normalizedSearch = keys.map(normalize);
-            const normalizedExclude = exclude.map(normalize);
-
-            // Exact match
             for (const key of keys) {
                 if (row[key] !== undefined) return row[key];
             }
-            // Fuzzy match
             for (const rKey of rowKeys) {
-                const normRKey = normalize(rKey);
-                // Skip excluded keys
-                if (normalizedExclude.some(e => normRKey.includes(e))) continue;
-
-                if (normalizedSearch.some(k => normRKey.includes(k) || k.includes(normRKey))) {
-                    return row[rKey];
-                }
+                if (keys.some(k => normalize(rKey).includes(normalize(k)))) return row[rKey];
             }
             return undefined;
         };
+        const getVal = (keys: string[]) => String(findKey(keys) || "").trim();
 
-        const getVal = (keys: string[], exclude: string[] = []) => String(findKey(keys, exclude) || "").trim();
-
-        // Date parser helper
-        const parseDate = (val: string) => {
-            if (!val) return new Date().toISOString().split('T')[0];
-            // Handle Excel serial date (numeric)
-            if (!isNaN(Number(val)) && Number(val) > 20000) {
-                const date = new Date((Number(val) - (25567 + 2)) * 86400 * 1000);
-                return date.toISOString().split('T')[0];
-            }
-            // Handle string dates
-            const d = new Date(val);
-            if (isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
-            return d.toISOString().split('T')[0];
+        return {
+            company_name: getVal(["company_name", "Company"]),
+            company_mail: getVal(["company_mail", "Company Mail"]),
+            company_address: getVal(["company_address", "Address"]),
+            hr_name: getVal(["hr_name", "HR Name"]),
+            hr_mail: getVal(["hr_mail", "HR Mail"]),
+            student_name: getVal(["student_name", "Student Name", "Name"]),
+            student_id: getVal(["student_id", "Register No", "USN"]),
+            student_mail: getVal(["student_mail", "Student Mail", "Email"]),
+            student_mobile: getVal(["student_mobile", "Student Mobile", "Mobile"]),
+            student_address: getVal(["student_address", "Student Address"]),
+            department: getVal(["department", "Dept"]),
+            offer_type: getVal(["offer_type", "Type"]),
+            salary: Number(getVal(["salary", "Salary"])) || 0,
+            package_lpa: Number(getVal(["package_lpa", "LPA"])) || 0,
+            current_year: Number(getVal(["current_year", "Year"])) || new Date().getFullYear(),
+            semester: Number(getVal(["semester", "Sem"])) || 0,
+            join_date: getVal(["join_date", "Join Date"]),
+            ref_no: getVal(["ref_no", "Ref"]),
         };
-
-        const baseRecord = {
-            company_name: getVal(["company_name", "Company", "Organization", "Name of Company", "Company Name"]),
-            company_mail: getVal(["company_mail", "Company Mail", "Mail ID", "Company Email"]),
-            company_address: getVal(["company_address", "Address", "Company Location"]),
-            hr_name: getVal(["hr_name", "HR Name", "Contact Person"], ["company"]), // Exclude company to match "Name" safely? No, HR Name usually distinct.
-            hr_mail: getVal(["hr_mail", "HR Mail", "HR Email"]),
-            // Crucial Fix: Exclude "company", "hr", "project" from Student Name search
-            student_name: getVal(["student_name", "Student Name", "Name", "Candidate", "Candidate Name", "Name of the Student", "Student"], ["company", "hr", "project", "college"]),
-            student_id: getVal(["student_id", "Register No", "USN", "Roll No", "ID"], ["comp", "email"]),
-            student_mail: getVal(["student_mail", "Student Mail", "Email", "Student Email"], ["company", "hr"]),
-            student_mobile: getVal(["student_mobile", "Student Mobile", "Mobile", "Phone"], ["company", "hr"]),
-            student_address: getVal(["student_address", "Student Address", "Residence"], ["company"]),
-            department: getVal(["department", "Dept", "Branch", "Department"]),
-            offer_type: getVal(["offer_type", "Offer Type", "Job Type", "Type"]),
-            salary: Number(getVal(["salary", "Salary", "Stipend"])) || 0,
-            package_lpa: Number(getVal(["package_lpa", "LPA", "Package", "CTC"])) || 0,
-            current_year: Number(getVal(["current_year", "Year", "Batch"])) || new Date().getFullYear(),
-            semester: Number(getVal(["semester", "Semester", "Sem"])) || 0,
-            join_date: parseDate(getVal(["join_date", "Join Date", "Date of Joining"])),
-            ref_no: getVal(["ref_no", "Ref No", "Reference", "Offer ID"]),
-        };
-
-        // Filter out obvious junk rows (headers, titles)
-        if (!baseRecord.student_name || baseRecord.student_name.toLowerCase().includes("department of")) {
-            return {};
-        }
-
-        return baseRecord;
     };
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
-        if (!files || files.length === 0) return;
-
-        const fileList = Array.from(files);
-        const processedFiles: string[] = [];
-        const loadingToast = toast.loading("Processing files...");
+        if (!files?.length) return;
 
         try {
-            const allRecords = await Promise.all(fileList.map(async (file) => {
-                const data = await file.arrayBuffer();
-                const workbook = XLSX.read(data);
-                let records: any[] = [];
-                workbook.SheetNames.forEach(name => {
-                    const ws = workbook.Sheets[name];
-                    const jsonData = XLSX.utils.sheet_to_json(ws);
-                    if (jsonData.length) records.push(...jsonData);
-                });
-                processedFiles.push(file.name);
-                return records.map(mapExcelRowToStudentPlacement);
-            }));
-
-            const flatRecords = allRecords.flat().filter(r => r.student_name && Object.keys(r).length > 2);
-            toast.dismiss(loadingToast);
-
-            if (flatRecords.length > 0) {
-                if (window.confirm(`Found ${flatRecords.length} records in ${processedFiles.join(", ")}. Import them now?`)) {
-                    bulkInsertMutation.mutate(flatRecords);
-                }
-            } else {
-                toast.error("No valid data found in files");
-            }
-        } catch (err) {
-            console.error(err);
-            toast.dismiss(loadingToast);
-            toast.error("Import failed");
-        } finally {
-            if (fileInputRef.current) fileInputRef.current.value = "";
-        }
+            const file = files[0];
+            const data = await file.arrayBuffer();
+            const wb = XLSX.read(data);
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const json = XLSX.utils.sheet_to_json(ws);
+            const mapped = json.map(mapExcelRowToStudentPlacement);
+            if (mapped.length) bulkInsertMutation.mutate(mapped);
+        } catch (e) { toast.error("File upload failed"); }
+        if (fileInputRef.current) fileInputRef.current.value = "";
     };
 
-    const handlePasteFromClipboard = async () => {
-        try {
-            const text = await navigator.clipboard.readText();
-            if (!text) return toast.error("Clipboard empty");
-            processClipboardData(text);
-        } catch (err) {
-            toast.error("Failed to read clipboard");
-        }
-    };
-
-    const processClipboardData = (text: string) => {
-        try {
-            const rows = text.split(/\r?\n/).filter(r => r.trim());
-            if (!rows.length) return;
-
-            const matrix = rows.map(r => r.split("\t"));
-            const headers = matrix[0];
-            const isHeader = headers.some(h => ["Name", "USN", "Company", "Salary"].some(k => h.toLowerCase().includes(k.toLowerCase())));
-
-            let dataToImport: any[] = [];
-
-            if (isHeader) {
-                const keys = headers;
-                dataToImport = matrix.slice(1).map(row => {
-                    const obj: any = {};
-                    row.forEach((val, i) => { if (keys[i]) obj[keys[i]] = val; });
-                    return obj;
-                });
-            } else {
-                if (!window.confirm("No headers detected in first row. Ensure typical column order or use an Excel file. Proceed with best-effort import?")) return;
-                // If no headers, try to map positionally if we assume a standard template? 
-                // That's risky. Let's just create raw objects and let mapper handle it if keys happen to match (unlikely).
-                // Better approach: Require headers for paste.
-                toast.info("Please explicitly include headers (Name, USN, Company...) for accurate paste.");
-                return;
-            }
-
-            if (dataToImport.length > 0) {
-                const records = dataToImport.map(mapExcelRowToStudentPlacement);
-                bulkInsertMutation.mutate(records);
-            }
-
-        } catch (err) {
-            console.error("Paste parse error", err);
-            toast.error("Failed to parse clipboard data");
-        }
-    };
-
-    // Global Paste Listener
-    useEffect(() => {
-        const pasteHandler = (e: ClipboardEvent) => {
-            const target = e.target as HTMLElement;
-            if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
-
-            const text = e.clipboardData?.getData("text");
-            if (text && text.length > 5 && (text.includes("\t") || text.includes("\n"))) {
-                // Heuristic to detect table data
-                if (window.confirm("Clipboard data detected. Import as new student records?")) {
-                    processClipboardData(text);
-                }
-            }
-        };
-        window.addEventListener("paste", pasteHandler);
-        return () => window.removeEventListener("paste", pasteHandler);
-    }, []);
-
-    // Unified Filter Logic
+    // Filter & Search Logic
     const filteredData = placements?.filter((p: any) => {
+        // Global Search
+        if (globalSearch) {
+            const searchLower = globalSearch.toLowerCase();
+            const matchesGlobal = columnDefs.some(col => {
+                if (!col.visible) return false;
+                const val = col.isCustom ? (p.other_details?.[col.key]) : p[col.key];
+                return String(val || "").toLowerCase().includes(searchLower);
+            });
+            if (!matchesGlobal) return false;
+        }
+
         // Specific Filters
         return Object.entries(filters).every(([key, value]) => {
             if (!value) return true;
             const valLower = value.toLowerCase();
-
-            // Check standard fields
-            if (p[key] !== undefined) {
-                return String(p[key]).toLowerCase().includes(valLower);
-            }
-            // Check custom/other fields
-            if (p.other_details && p.other_details[key] !== undefined) {
-                return String(p.other_details[key]).toLowerCase().includes(valLower);
-            }
-            return false;
+            const col = columnDefs.find(c => c.key === key);
+            if (!col) return true;
+            const recordVal = col.isCustom ? (p.other_details?.[key]) : p[key];
+            return String(recordVal || "").toLowerCase().includes(valLower);
         });
     });
 
-    // Export to Excel
-    const handleExport = () => {
-        if (!filteredData || !filteredData.length) return;
-
-        // Flatten data for export
-        const exportData = filteredData.map(record => {
-            const { other_details, ...rest } = record;
-            const flattened: Record<string, any> = { ...rest };
-
-            // Add custom columns
-            if (other_details) {
-                const details = other_details as Record<string, any>;
-                customColumns.forEach(col => {
-                    flattened[col] = details[col] || "";
-                });
-            }
-            return flattened;
-        });
-
-        const ws = XLSX.utils.json_to_sheet(exportData);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Placements");
-        XLSX.writeFile(wb, "Student_Placement_Records.xlsx");
-    };
+    const visibleColumns = columnDefs.filter(c => c.visible);
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between gap-4 items-center">
-                <h2 className="text-2xl font-bold">Individual Placement Records</h2>
-                <div className="flex gap-2 w-full sm:w-auto flex-wrap justify-end">
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        className="hidden"
-                        multiple
-                        accept=".xlsx, .xls, .csv"
-                        onChange={handleFileUpload}
-                    />
-
-
-                    <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="whitespace-nowrap">
-                        <Upload className="mr-2 h-4 w-4" />
-                        Import
-                    </Button>
-                    <Button variant="outline" onClick={handlePasteFromClipboard} className="whitespace-nowrap" title="Ctrl+V to paste">
-                        <Clipboard className="mr-2 h-4 w-4" />
-                        Paste
-                    </Button>
-                    <Button variant="outline" onClick={handleExport} className="whitespace-nowrap">
-                        <FileDown className="mr-2 h-4 w-4" />
-                        Export
-                    </Button>
-                    <Button variant="outline" onClick={() => setIsColumnDialogOpen(true)} className="whitespace-nowrap">
-                        <Columns className="mr-2 h-4 w-4" />
-                        Add Col
-                    </Button>
-                    <Button onClick={() => { setEditingId(null); setIsDialogOpen(true); }} className="whitespace-nowrap">
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add New
-                    </Button>
-                </div>
-            </div>
-
-            {/* Filter Section */}
-            <div className="flex flex-col gap-4 p-4 border rounded-md bg-muted/20">
-                <div className="flex flex-wrap gap-2 items-end">
-                    <div className="space-y-2 min-w-[200px]">
-                        <Label>Filter Column</Label>
-                        <Select onValueChange={(val) => {
-                            const input = document.getElementById("filter-value-input") as HTMLInputElement;
-                            if (input) input.dataset.column = val;
-                        }}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Column" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {Object.entries(FILTER_FIELDS).map(([key, label]) => (
-                                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                                ))}
-                                {customColumns.map(col => (
-                                    <SelectItem key={col} value={col}>{col} (Custom)</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="space-y-2 min-w-[200px]">
-                        <Label>Value</Label>
-                        <Input
-                            id="filter-value-input"
-                            placeholder="Type to filter..."
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                    const target = e.target as HTMLInputElement;
-                                    const col = target.dataset.column;
-                                    if (col) {
-                                        handleAddFilter(col, target.value);
-                                        target.value = "";
-                                    } else {
-                                        toast.error("Please select a column first");
-                                    }
-                                }
-                            }}
+            <div className="flex flex-col gap-4">
+                <div className="flex justify-between items-center gap-4 flex-wrap">
+                    <h2 className="text-2xl font-bold">Student Placement Records</h2>
+                    <div className="flex gap-2">
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept=".xlsx,.csv"
+                            onChange={handleFileUpload}
                         />
-                    </div>
-                    <Button onClick={() => {
-                        const input = document.getElementById("filter-value-input") as HTMLInputElement;
-                        const col = input?.dataset.column;
-                        if (col && input.value) {
-                            handleAddFilter(col, input.value);
-                            input.value = "";
-                        } else {
-                            toast.error("Select a column and enter a value");
-                        }
-                    }}>
-                        <Plus className="mr-2 h-4 w-4" /> Add Filter
-                    </Button>
-                </div>
-
-                {/* Active Filters */}
-                {Object.keys(filters).length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                        {Object.entries(filters).map(([key, value]) => (
-                            <div key={key} className="flex items-center gap-1 bg-secondary text-secondary-foreground px-3 py-1 rounded-full text-sm">
-                                <span className="font-medium">{FILTER_FIELDS[key] || key}:</span>
-                                <span>{value}</span>
-                                <button onClick={() => removeFilter(key)} className="ml-1 hover:text-destructive">
-                                    <X className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ))}
-                        <Button variant="ghost" size="sm" onClick={() => setFilters({})} className="text-xs h-7">
-                            Clear All
+                        <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                            <Upload className="mr-2 h-4 w-4" /> Import
+                        </Button>
+                        <Button variant="outline" onClick={() => setIsColumnDialogOpen(true)}>
+                            <Columns className="mr-2 h-4 w-4" /> Add Col
+                        </Button>
+                        <Button onClick={() => { setEditingId(null); setIsDialogOpen(true); }}>
+                            <Plus className="mr-2 h-4 w-4" /> Add Record
                         </Button>
                     </div>
-                )}
+                </div>
+
+                {/* Global Search & Column Toggle */}
+                <div className="flex items-center gap-4 bg-muted/20 p-4 rounded-md">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Global Search..."
+                            className="pl-9 bg-background"
+                            value={globalSearch}
+                            onChange={(e) => setGlobalSearch(e.target.value)}
+                        />
+                    </div>
+
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <Button variant="outline">Hidden Columns ({columnDefs.filter(c => !c.visible).length})</Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                            <DialogHeader><DialogTitle>Manage Columns</DialogTitle></DialogHeader>
+                            <div className="grid grid-cols-2 gap-2">
+                                {columnDefs.map(col => (
+                                    <div key={col.key} className="flex items-center space-x-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={col.visible}
+                                            onChange={() => col.visible ? handleHideColumn(col.key) : handleUnhideColumn(col.key)}
+                                            id={`col-${col.key}`}
+                                        />
+                                        <label htmlFor={`col-${col.key}`}>{col.label}</label>
+                                    </div>
+                                ))}
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+                </div>
             </div>
 
-            <div className="rounded-md border overflow-x-auto">
+            <div className="rounded-md border overflow-x-auto shadow-sm">
                 <Table className="min-w-[2000px]">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-[50px] font-bold">S.No</TableHead>
-                            <TableHead className="font-bold">Company Name</TableHead>
-                            <TableHead className="font-bold">Company Mail</TableHead>
-                            <TableHead className="font-bold">Company Address</TableHead>
-                            <TableHead className="font-bold">HR Name</TableHead>
-                            <TableHead className="font-bold">HR Mail</TableHead>
-                            <TableHead className="font-bold">Student Name</TableHead>
-                            <TableHead className="font-bold">Dept</TableHead>
-                            <TableHead className="font-bold">Type</TableHead>
-                            <TableHead className="font-bold">Salary</TableHead>
-                            <TableHead className="font-bold">Package (LPA)</TableHead>
-                            <TableHead className="font-bold">Student ID</TableHead>
-                            <TableHead className="font-bold">Student Mail</TableHead>
-                            <TableHead className="font-bold">Student Mobile</TableHead>
-                            <TableHead className="font-bold">Student Address</TableHead>
-                            <TableHead className="font-bold">Year</TableHead>
-                            <TableHead className="font-bold">Sem</TableHead>
-                            <TableHead className="font-bold">Join Date</TableHead>
-                            <TableHead className="font-bold">Ref</TableHead>
-                            {customColumns.map(col => (
-                                <TableHead key={col} className="font-bold capitalize group min-w-[120px]">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <span>{col}</span>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
-                                            onClick={() => {
-                                                if (window.confirm(`Remove column "${col}" from view? Data will be preserved.`)) {
-                                                    const newColumns = customColumns.filter(c => c !== col);
-                                                    setCustomColumns(newColumns);
-                                                    localStorage.setItem("placement_custom_columns", JSON.stringify(newColumns));
-                                                    toast.success("Column removed");
-                                                }
-                                            }}
-                                        >
-                                            <X className="h-3 w-3" />
-                                        </Button>
-                                    </div>
+                            <TableHead className="w-[60px] font-bold bg-muted/50">S.No</TableHead>
+                            {visibleColumns.map((col) => (
+                                <TableHead key={col.key} className="font-bold bg-muted/50 min-w-[150px] group">
+                                    {editingHeaderKey === col.key ? (
+                                        <div className="flex items-center gap-1">
+                                            <Input
+                                                value={tempHeaderName}
+                                                onChange={(e) => setTempHeaderName(e.target.value)}
+                                                className="h-7 text-xs"
+                                                autoFocus
+                                                onBlur={() => handleHeaderRename(col.key, tempHeaderName)}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleHeaderRename(col.key, tempHeaderName)}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span>{col.label}</span>
+                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <Button
+                                                    variant="ghost" size="icon" className="h-6 w-6"
+                                                    onClick={() => { setEditingHeaderKey(col.key); setTempHeaderName(col.label); }}
+                                                >
+                                                    <Pencil className="h-3 w-3 text-blue-500" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost" size="icon" className="h-6 w-6"
+                                                    onClick={() => handleHideColumn(col.key)}
+                                                >
+                                                    <Trash2 className="h-3 w-3 text-red-500" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </TableHead>
                             ))}
-                            <TableHead className="text-right font-bold sticky right-0 bg-background shadow-sm">Actions</TableHead>
+                            <TableHead className="text-right font-bold bg-muted/50 sticky right-0 z-10 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)]">
+                                Actions
+                            </TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {isLoading ? (
-                            <TableRow><TableCell colSpan={19} className="text-center h-24">Loading records...</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={visibleColumns.length + 2} className="text-center h-24">Loading...</TableCell></TableRow>
                         ) : filteredData?.length === 0 ? (
-                            <TableRow><TableCell colSpan={19} className="text-center h-24">No records found.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={visibleColumns.length + 2} className="text-center h-24">No records found</TableCell></TableRow>
                         ) : (
                             filteredData?.map((record, index) => (
-                                <TableRow key={record.id}>
+                                <TableRow key={record.id} className="hover:bg-muted/5">
                                     <TableCell>{index + 1}</TableCell>
-                                    <TableCell>{record.company_name}</TableCell>
-                                    <TableCell>{record.company_mail}</TableCell>
-                                    <TableCell className="max-w-[200px] truncate" title={record.company_address}>{record.company_address}</TableCell>
-                                    <TableCell>{record.hr_name}</TableCell>
-                                    <TableCell>{record.hr_mail}</TableCell>
-                                    <TableCell>{record.student_name}</TableCell>
-                                    <TableCell>{record.department}</TableCell>
-                                    <TableCell>{record.offer_type}</TableCell>
-                                    <TableCell>{record.salary}</TableCell>
-                                    <TableCell>{record.package_lpa}</TableCell>
-                                    <TableCell>{record.student_id}</TableCell>
-                                    <TableCell>{record.student_mail}</TableCell>
-                                    <TableCell>{record.student_mobile}</TableCell>
-                                    <TableCell className="max-w-[200px] truncate" title={record.student_address}>{record.student_address}</TableCell>
-                                    <TableCell>{record.current_year}</TableCell>
-                                    <TableCell>{record.semester}</TableCell>
-                                    <TableCell className="whitespace-nowrap">{record.join_date}</TableCell>
-                                    <TableCell>{record.ref_no}</TableCell>
-                                    {customColumns.map(col => (
-                                        <TableCell key={col}>{(record.other_details as any)?.[col] || "-"}</TableCell>
+                                    {visibleColumns.map(col => (
+                                        <TableCell key={col.key}>
+                                            {col.isCustom ? (record.other_details?.[col.key] || "-") : (record[col.key as keyof StudentPlacement] || "-")}
+                                        </TableCell>
                                     ))}
                                     <TableCell className="text-right sticky right-0 bg-background shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)]">
                                         <div className="flex justify-end gap-2">
                                             <Button variant="ghost" size="icon" onClick={() => { setEditingId(record.id); setIsDialogOpen(true); }}>
                                                 <Pencil className="h-4 w-4 text-blue-500" />
                                             </Button>
-
                                             <AlertDialog>
                                                 <AlertDialogTrigger asChild>
                                                     <Button variant="ghost" size="icon">
@@ -608,15 +406,11 @@ export function StudentPlacementTable() {
                                                 <AlertDialogContent>
                                                     <AlertDialogHeader>
                                                         <AlertDialogTitle>Delete Record?</AlertDialogTitle>
-                                                        <AlertDialogDescription>
-                                                            Are you sure you want to delete the placement record for {record.student_name}? This cannot be undone.
-                                                        </AlertDialogDescription>
+                                                        <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
                                                     </AlertDialogHeader>
                                                     <AlertDialogFooter>
                                                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                        <AlertDialogAction onClick={() => deleteMutation.mutate(record.id)} className="bg-red-600">
-                                                            Delete
-                                                        </AlertDialogAction>
+                                                        <AlertDialogAction onClick={() => deleteMutation.mutate(record.id)} className="bg-red-600">Delete</AlertDialogAction>
                                                     </AlertDialogFooter>
                                                 </AlertDialogContent>
                                             </AlertDialog>
@@ -632,19 +426,13 @@ export function StudentPlacementTable() {
             {/* Add Column Dialog */}
             <Dialog open={isColumnDialogOpen} onOpenChange={setIsColumnDialogOpen}>
                 <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Add New Column</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
+                    <DialogHeader><DialogTitle>Add Custom Column</DialogTitle></DialogHeader>
+                    <div className="space-y-4">
                         <div className="space-y-2">
                             <Label>Column Name</Label>
-                            <Input
-                                value={newColumnName}
-                                onChange={(e) => setNewColumnName(e.target.value)}
-                                placeholder="e.g. Skills, Location, Bond Period"
-                            />
+                            <Input value={newColumnName} onChange={(e) => setNewColumnName(e.target.value)} placeholder="e.g. Bond Period" />
                         </div>
-                        <Button onClick={handleAddColumn} className="w-full">Add Column</Button>
+                        <Button onClick={handleAddCustomColumn} className="w-full">Add</Button>
                     </div>
                 </DialogContent>
             </Dialog>
@@ -653,13 +441,12 @@ export function StudentPlacementTable() {
                 open={isDialogOpen}
                 onOpenChange={setIsDialogOpen}
                 editingId={editingId}
-                customColumns={customColumns}
+                customColumns={columnDefs.filter(c => c.isCustom).map(c => c.key)}
             />
-        </div >
+        </div>
     );
 }
 
-// Sub-component for the Form Dialog
 function PlacementRecordDialog({
     open,
     onOpenChange,
@@ -679,7 +466,6 @@ function PlacementRecordDialog({
         defaultValues: {}
     });
 
-    // Fetch Departments
     const { data: departments } = useQuery({
         queryKey: ["departments"],
         queryFn: async () => {
@@ -688,7 +474,6 @@ function PlacementRecordDialog({
         }
     });
 
-    // Fetch single record if editing
     useQuery({
         queryKey: ["student-placement", editingId],
         queryFn: async () => {
@@ -700,13 +485,10 @@ function PlacementRecordDialog({
         enabled: isEditing && open
     });
 
-    // Auto-fill Department for HOD when adding
     useEffect(() => {
         if (!isEditing && open && role === "department_coordinator" && departments && departmentId) {
             const myDept = departments.find(d => d.id === departmentId);
-            if (myDept) {
-                form.setValue("department", myDept.code);
-            }
+            if (myDept) form.setValue("department", myDept.code);
         }
     }, [open, isEditing, role, departmentId, departments, form]);
 
@@ -722,152 +504,101 @@ function PlacementRecordDialog({
         },
         onSuccess: () => {
             toast.success(isEditing ? "Record updated" : "Record added");
-            onOpenChange(false);
-            form.reset();
             queryClient.invalidateQueries({ queryKey: ["student-placements"] });
+            onOpenChange(false);
+            form.reset({});
         },
-        onError: (err) => {
-            toast.error("Error: " + err.message);
-        }
+        onError: (error) => toast.error("Error: " + error.message)
     });
 
-    const onSubmit = (data: any) => {
-        mutation.mutate(data);
-    };
+    const onSubmit = (data: Partial<StudentPlacement>) => mutation.mutate(data);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>{isEditing ? "Edit Placement Record" : "Add New Placement Record"}</DialogTitle>
+                    <DialogTitle>{isEditing ? "Edit Record" : "Add Placement Record"}</DialogTitle>
                 </DialogHeader>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {/* Company Info */}
-                        <div className="space-y-4">
-                            <h4 className="font-semibold text-sm border-b pb-2">Company Details</h4>
-                            <div className="space-y-2">
-                                <Label>Company Name</Label>
-                                <Input {...form.register("company_name")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Company Email</Label>
-                                <Input {...form.register("company_mail")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Company Address</Label>
-                                <Input {...form.register("company_address")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>HR Name</Label>
-                                <Input {...form.register("hr_name")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>HR Mail</Label>
-                                <Input {...form.register("hr_mail")} />
-                            </div>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                            <Label>Company Name</Label>
+                            <Input {...form.register("company_name")} />
                         </div>
-
-                        {/* Student Info */}
-                        <div className="space-y-4">
-                            <h4 className="font-semibold text-sm border-b pb-2">Student Details</h4>
-                            <div className="space-y-2">
-                                <Label>Student Name</Label>
-                                <Input {...form.register("student_name")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Student ID (Reg No)</Label>
-                                <Input {...form.register("student_id")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Department</Label>
-                                <Controller
-                                    name="department"
-                                    control={form.control}
-                                    render={({ field }) => (
-                                        <Select onValueChange={field.onChange} value={field.value}>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Select Dept" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="AIDS">AIDS</SelectItem>
-                                                {departments?.map((dept: any) => (
-                                                    <SelectItem key={dept.id} value={dept.code}>
-                                                        {dept.code}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    )}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Email</Label>
-                                <Input {...form.register("student_mail")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Mobile Number</Label>
-                                <Input {...form.register("student_mobile")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Address</Label>
-                                <Input {...form.register("student_address")} />
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <div className="space-y-2">
-                                    <Label>Year</Label>
-                                    <Input type="number" {...form.register("current_year")} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Sem</Label>
-                                    <Input type="number" {...form.register("semester")} />
-                                </div>
-                            </div>
+                        <div className="space-y-2">
+                            <Label>Company Mail</Label>
+                            <Input {...form.register("company_mail")} />
                         </div>
-
-                        {/* Offer Info */}
-                        <div className="space-y-4">
-                            <h4 className="font-semibold text-sm border-b pb-2">Offer Details</h4>
-                            <div className="space-y-2">
-                                <Label>Offer Type</Label>
-                                <Input {...form.register("offer_type")} placeholder="Placement / Internship" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Package (LPA)</Label>
-                                <Input type="number" step="0.01" {...form.register("package_lpa")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Salary (Monthly)</Label>
-                                <Input type="number" {...form.register("salary")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Join Date</Label>
-                                <Input type="date" {...form.register("join_date")} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Reference No / Letter ID</Label>
-                                <Input {...form.register("ref_no")} />
-                            </div>
+                        <div className="space-y-2">
+                            <Label>Company Address</Label>
+                            <Input {...form.register("company_address")} />
                         </div>
-
-                        {/* Dynamic Columns */}
-                        {customColumns.length > 0 && (
-                            <div className="space-y-4">
-                                <h4 className="font-semibold text-sm border-b pb-2">Other Details</h4>
-                                {customColumns.map(col => (
-                                    <div key={col} className="space-y-2">
-                                        <Label className="capitalize">{col}</Label>
-                                        <Input {...form.register(`other_details.${col}`)} />
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        <div className="space-y-2">
+                            <Label>HR Name</Label>
+                            <Input {...form.register("hr_name")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>HR Mail</Label>
+                            <Input {...form.register("hr_mail")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Student Name</Label>
+                            <Input {...form.register("student_name")} required />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Student ID</Label>
+                            <Input {...form.register("student_id")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Student Email</Label>
+                            <Input {...form.register("student_mail")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Student Mobile</Label>
+                            <Input {...form.register("student_mobile")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Department</Label>
+                            <Select onValueChange={(v) => form.setValue("department", v)} defaultValue={form.getValues("department")}>
+                                <SelectTrigger><SelectValue placeholder="Select Dept" /></SelectTrigger>
+                                <SelectContent>
+                                    {departments?.map(d => <SelectItem key={d.id} value={d.code}>{d.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Offer Type</Label>
+                            <Input {...form.register("offer_type")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Salary</Label>
+                            <Input type="number" {...form.register("salary")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Package (LPA)</Label>
+                            <Input type="number" step="0.1" {...form.register("package_lpa")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Year (Batch)</Label>
+                            <Input type="number" {...form.register("current_year")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Semester</Label>
+                            <Input type="number" {...form.register("semester")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Join Date</Label>
+                            <Input type="date" {...form.register("join_date")} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Reference No</Label>
+                            <Input {...form.register("ref_no")} />
+                        </div>
                     </div>
-
-                    <div className="flex justify-end gap-2 pt-4 border-t">
-                        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                        <Button type="submit">{isEditing ? "Update" : "Save Record"}</Button>
-                    </div>
+                    <Button type="submit" disabled={mutation.isPending}>
+                        {mutation.isPending && <Clipboard className="mr-2 h-4 w-4 animate-spin" />}
+                        {isEditing ? "Update" : "Create"}
+                    </Button>
                 </form>
             </DialogContent>
         </Dialog>

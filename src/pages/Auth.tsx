@@ -200,7 +200,7 @@ export default function Auth() {
         { name: "M.Tech. CSE", code: "MTECH-CSE" },
         { name: "Management Studies", code: "MBA" },
         { name: "Computer Applications", code: "MCA" },
-        { name: "Artificial Intelligence and MAChine learning", code: "AIML-FULL" },
+        { name: "Artificial Intelligence and Machine learning", code: "AIML-FULL" },
         { name: "Science and Humanities", code: "S&H" },
       ];
 
