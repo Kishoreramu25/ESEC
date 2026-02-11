@@ -279,11 +279,13 @@ export function PlacementRecordTable() {
                 return;
             }
             toast.success("Record deleted");
+            setRecords(prev => prev.filter(r => r.id !== id));
+        } else {
+            // For new records without an id, use the actual record reference from the displayed list
+            const recordToRemove = filteredRecords[index];
+            setRecords(prev => prev.filter(r => r !== recordToRemove));
+            toast.success("Record removed");
         }
-
-        const newRecords = [...records];
-        newRecords.splice(index, 1);
-        setRecords(newRecords);
     };
 
     const handleDeleteAll = async () => {
@@ -308,10 +310,9 @@ export function PlacementRecordTable() {
         }
     };
 
-    const updateRecord = (index: number, field: keyof PlacementRecord, value: string) => {
-        const newRecords = [...records];
-        newRecords[index] = { ...newRecords[index], [field]: value };
-        setRecords(newRecords);
+    const updateRecord = (displayIndex: number, field: keyof PlacementRecord, value: string) => {
+        const targetRecord = filteredRecords[displayIndex];
+        setRecords(prev => prev.map(r => r === targetRecord ? { ...r, [field]: value } : r));
     };
 
     const handleSave = async () => {
@@ -696,10 +697,10 @@ export function PlacementRecordTable() {
                             variant={hideEmpty ? "secondary" : "outline"}
                             onClick={() => setHideEmpty(!hideEmpty)}
                             className="shadow-sm whitespace-nowrap"
-                            title={hideEmpty ? "Show all columns/rows" : "Hide empty columns/rows"}
+                            title={hideEmpty ? "Show all columns" : "Show only 100% filled columns (Strict View)"}
                         >
                             {hideEmpty ? <Eye className="mr-2 h-4 w-4" /> : <EyeOff className="mr-2 h-4 w-4" />}
-                            {hideEmpty ? "Unhide Empty" : "Hide Empty"}
+                            {hideEmpty ? "Disable Strict View" : "Enable Strict View"}
                         </Button>
                     </div>
                 </div>
@@ -831,16 +832,17 @@ export function PlacementRecordTable() {
 
                                 const isCellEmpty = (val: any) => val === null || val === undefined || val === "";
 
-                                const isColEmpty = (key: string) => {
-                                    return filteredRecords.every(r => isCellEmpty(r[key]));
+                                const hasMissingData = (key: string) => {
+                                    // Strict View: Hide column if ANY visible record has missing data
+                                    return filteredRecords.some(r => isCellEmpty(r[key]));
                                 };
 
                                 const visibleStandardCols = hideEmpty
-                                    ? standardCols.filter(col => !isColEmpty(col.key))
+                                    ? standardCols.filter(col => !hasMissingData(col.key))
                                     : standardCols;
 
                                 const visibleCustomCols = hideEmpty
-                                    ? customColumns.filter(col => !isColEmpty(col))
+                                    ? customColumns.filter(col => !hasMissingData(col))
                                     : customColumns;
 
                                 return (
@@ -895,22 +897,16 @@ export function PlacementRecordTable() {
 
                                 const isCellEmpty = (val: any) => val === null || val === undefined || val === "";
 
-                                const isColEmpty = (key: string) => {
-                                    return filteredRecords.every(r => isCellEmpty(r[key]));
-                                };
-
-                                const isRowEmpty = (r: PlacementRecord) => {
-                                    const standardEmpty = standardCols.every(key => isCellEmpty(r[key]));
-                                    const customEmpty = customColumns.every(key => isCellEmpty(r[key]));
-                                    return standardEmpty && customEmpty;
+                                const hasMissingData = (key: string) => {
+                                    return filteredRecords.some(r => isCellEmpty(r[key]));
                                 };
 
                                 const visibleStandardCols = hideEmpty
-                                    ? standardCols.filter(key => !isColEmpty(key))
+                                    ? standardCols.filter(key => !hasMissingData(key))
                                     : standardCols;
 
                                 const visibleCustomCols = hideEmpty
-                                    ? customColumns.filter(key => !isColEmpty(key))
+                                    ? customColumns.filter(key => !hasMissingData(key))
                                     : customColumns;
 
                                 const rowsToShow = hideEmpty
